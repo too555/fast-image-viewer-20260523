@@ -8,6 +8,7 @@ from pathlib import Path
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.core.image_scanner import ImageFile
+from app.utils.long_path import display_path, filesystem_path, make_dirs, path_exists
 
 THUMBNAIL_SIZE = 128
 
@@ -37,7 +38,7 @@ def thumbnail_cache_path(
 ) -> Path:
     cache_root = cache_dir or default_cache_dir()
     key_source = (
-        f"{image_file.path.resolve(strict=False)}|"
+        f"{os.path.abspath(str(display_path(image_file.path)))}|"
         f"{image_file.mtime:.6f}|"
         f"{image_file.size}|"
         f"{thumbnail_size}"
@@ -53,10 +54,10 @@ def ensure_thumbnail(
     cache_dir: Path | None = None,
 ) -> ThumbnailResult:
     cache_path = thumbnail_cache_path(image_file, thumbnail_size, cache_dir)
-    if cache_path.exists():
+    if path_exists(cache_path):
         return ThumbnailResult(index=index, cache_path=cache_path)
 
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    make_dirs(cache_path.parent)
     try:
         _create_thumbnail(image_file.path, cache_path, thumbnail_size)
     except (OSError, UnidentifiedImageError, ValueError) as error:
@@ -66,7 +67,7 @@ def ensure_thumbnail(
 
 
 def _create_thumbnail(source_path: Path, cache_path: Path, thumbnail_size: int) -> None:
-    with Image.open(source_path) as image:
+    with Image.open(filesystem_path(source_path)) as image:
         if hasattr(image, "draft"):
             image.draft("RGB", (thumbnail_size, thumbnail_size))
         image = ImageOps.exif_transpose(image)
@@ -82,4 +83,4 @@ def _create_thumbnail(source_path: Path, cache_path: Path, thumbnail_size: int) 
         else:
             canvas.paste(image.convert("RGB"), (left, top))
 
-        canvas.save(cache_path, format="BMP")
+        canvas.save(filesystem_path(cache_path), format="BMP")

@@ -3,3 +3,32 @@ __pycache__/
 .pytest_cache/
 .test-localappdata/
 tmp*/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual Environment
+.venv/
+
+# Local test data
+.test-localappdata/
+tmp*/
+
+# App cache
+thumbnails/
+previews/
+
+# Generated images
+*_resized.*
+*_resized_*.jpg
+*_resized_*.png
+
+# Test artifacts
+test_artifacts/
+
+# OS
+Thumbs.db
+.DS_Store
+

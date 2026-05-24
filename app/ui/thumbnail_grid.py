@@ -8,13 +8,16 @@ from pathlib import Path
 
 from app.core.image_scanner import ImageFile
 from app.core.thumbnail_cache import THUMBNAIL_SIZE
+from app.utils.long_path import filesystem_path, path_exists
 
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
 kernel32 = ctypes.windll.kernel32
+shell32 = ctypes.windll.shell32
 
 kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
 kernel32.GetModuleHandleW.restype = wintypes.HINSTANCE
+shell32.DragAcceptFiles.argtypes = [wintypes.HWND, wintypes.BOOL]
 
 user32.CreateWindowExW.argtypes = [
     wintypes.DWORD,
@@ -65,6 +68,10 @@ user32.SetScrollInfo.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p, w
 user32.SetScrollInfo.restype = ctypes.c_int
 user32.GetScrollInfo.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p]
 user32.GetScrollInfo.restype = wintypes.BOOL
+user32.GetKeyState.argtypes = [ctypes.c_int]
+user32.GetKeyState.restype = ctypes.c_short
+user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+user32.GetAsyncKeyState.restype = ctypes.c_short
 user32.SetFocus.argtypes = [wintypes.HWND]
 user32.SetFocus.restype = wintypes.HWND
 
@@ -101,9 +108,12 @@ WM_PAINT = 0x000F
 WM_ERASEBKGND = 0x0014
 WM_VSCROLL = 0x0115
 WM_KEYDOWN = 0x0100
+WM_SYSKEYDOWN = 0x0104
 WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONDBLCLK = 0x0203
+WM_RBUTTONUP = 0x0205
 WM_MOUSEWHEEL = 0x020A
+WM_DROPFILES = 0x0233
 
 WS_CHILD = 0x40000000
 WS_VISIBLE = 0x10000000
@@ -146,12 +156,19 @@ NULL_BRUSH = 5
 PS_SOLID = 0
 IDC_ARROW = 32512
 VK_LEFT = 0x25
+VK_UP = 0x26
 VK_RIGHT = 0x27
 VK_RETURN = 0x0D
 VK_HOME = 0x24
 VK_END = 0x23
 VK_PRIOR = 0x21
 VK_NEXT = 0x22
+VK_SPACE = 0x20
+VK_SHIFT = 0x10
+VK_CONTROL = 0x11
+VK_MENU = 0x12
+VK_C = 0x43
+VK_F = 0x46
 
 CELL_PADDING = 14
 NAME_HEIGHT = 38
@@ -229,7 +246,16 @@ class ThumbnailGrid:
         self.selected_index: int | None = None
         self.on_selection_changed = None
         self.on_item_activated = None
+        self.on_files_dropped = None
         self.on_visible_range_changed = None
+        self.on_context_menu = None
+        self.on_copy_image_path = None
+        self.on_copy_folder_path = None
+        self.on_previous = None
+        self.on_next = None
+        self.on_parent_folder = None
+        self.on_previous_folder = None
+        self.on_next_folder = None
         self.thumbnail_size = THUMBNAIL_SIZE
         self.scroll_y = 0
         self._bitmap_cache: OrderedDict[Path, int] = OrderedDict()
@@ -254,6 +280,7 @@ class ThumbnailGrid:
         if not hwnd:
             raise ctypes.WinError()
         self.hwnd = int(hwnd)
+        shell32.DragAcceptFiles(self.hwnd, True)
         _grid_instances[self.hwnd] = self
         return self.hwnd
 
@@ -332,6 +359,7 @@ class ThumbnailGrid:
     def destroy(self) -> None:
         self._clear_bitmap_cache()
         if self.hwnd:
+            shell32.DragAcceptFiles(self.hwnd, False)
             _grid_instances.pop(self.hwnd, None)
             self.hwnd = None
 
@@ -390,7 +418,12 @@ class ThumbnailGrid:
         if message == WM_VSCROLL:
             self._handle_vscroll(int(w_param) & 0xFFFF)
             return 0
+        if message == WM_SYSKEYDOWN:
+            if self._handle_folder_navigation_shortcut(int(w_param)):
+                return 0
         if message == WM_KEYDOWN:
+            if self._handle_copy_shortcut(int(w_param)):
+                return 0
             if int(w_param) == VK_LEFT:
                 self.select_relative(-1)
                 return 0
@@ -412,6 +445,9 @@ class ThumbnailGrid:
             if int(w_param) == VK_RETURN:
                 self._activate_selected()
                 return 0
+            if int(w_param) == VK_SPACE:
+                self._navigate_by_input(-1 if _shift_pressed() else 1)
+                return 0
         if message == WM_LBUTTONDOWN:
             user32.SetFocus(self.hwnd)
             self._handle_click(_signed_loword(int(l_param)), _signed_hiword(int(l_param)))
@@ -420,9 +456,20 @@ class ThumbnailGrid:
             user32.SetFocus(self.hwnd)
             self._handle_double_click(_signed_loword(int(l_param)), _signed_hiword(int(l_param)))
             return 0
+        if message == WM_RBUTTONUP:
+            user32.SetFocus(self.hwnd)
+            self._handle_context_menu(_signed_loword(int(l_param)), _signed_hiword(int(l_param)))
+            return 0
         if message == WM_MOUSEWHEEL:
             delta = _signed_hiword(int(w_param))
-            self._set_scroll(self.scroll_y - int(delta / 120) * self._cell_height())
+            if delta > 0:
+                self._navigate_by_input(-1)
+            elif delta < 0:
+                self._navigate_by_input(1)
+            return 0
+        if message == WM_DROPFILES:
+            if self.on_files_dropped is not None:
+                self.on_files_dropped(int(w_param))
             return 0
         if message == WM_PAINT:
             self._paint()
@@ -431,6 +478,20 @@ class ThumbnailGrid:
             self.destroy()
             return 0
         return None
+
+    def _handle_folder_navigation_shortcut(self, key: int) -> bool:
+        if not _alt_pressed():
+            return False
+        if key == VK_UP and self.on_parent_folder is not None:
+            self.on_parent_folder()
+            return True
+        if key == VK_LEFT and self.on_previous_folder is not None:
+            self.on_previous_folder()
+            return True
+        if key == VK_RIGHT and self.on_next_folder is not None:
+            self.on_next_folder()
+            return True
+        return False
 
     def _paint(self) -> None:
         if not self.hwnd:
@@ -503,7 +564,7 @@ class ThumbnailGrid:
         gdi32.Rectangle(hdc, box_left, box_top, box_right, box_bottom)
 
         cache_path = self.thumbnails.get(index)
-        if cache_path is not None and cache_path.exists():
+        if cache_path is not None and path_exists(cache_path):
             self._draw_bitmap(hdc, cache_path, thumb_left, thumb_top)
         else:
             label = "失敗" if index in self.failed_indexes else "読込中"
@@ -517,7 +578,7 @@ class ThumbnailGrid:
             self.items[index].name,
             -1,
             ctypes.byref(name_rect),
-            DT_CENTER | DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
         )
 
     def _draw_bitmap(self, hdc: int, cache_path: Path, x: int, y: int) -> None:
@@ -557,7 +618,7 @@ class ThumbnailGrid:
 
         loaded = user32.LoadImageW(
             None,
-            str(cache_path),
+            filesystem_path(cache_path),
             IMAGE_BITMAP,
             self.thumbnail_size,
             self.thumbnail_size,
@@ -618,6 +679,13 @@ class ThumbnailGrid:
         self.select_index(index)
         self._activate_selected()
 
+    def _handle_context_menu(self, x: int, y: int) -> None:
+        if self.on_context_menu is None:
+            return
+        index = self._index_at_point(x, y)
+        image_file = self.items[index] if index is not None else None
+        self.on_context_menu(self.hwnd, x, y, image_file)
+
     def _index_at_point(self, x: int, y: int) -> int | None:
         width = self._client_width()
         columns = self._column_count(width)
@@ -641,6 +709,28 @@ class ThumbnailGrid:
             return
         if self.on_item_activated is not None:
             self.on_item_activated(self.selected_index, self.items[self.selected_index])
+
+    def _handle_copy_shortcut(self, key: int) -> bool:
+        if not (_ctrl_pressed() and _shift_pressed()):
+            return False
+        if key == VK_C:
+            if self.on_copy_image_path is not None:
+                self.on_copy_image_path()
+            return True
+        if key == VK_F:
+            if self.on_copy_folder_path is not None:
+                self.on_copy_folder_path()
+            return True
+        return False
+
+    def _navigate_by_input(self, delta: int) -> None:
+        if delta < 0 and self.on_previous is not None:
+            self.on_previous()
+            return
+        if delta > 0 and self.on_next is not None:
+            self.on_next()
+            return
+        self.select_relative(delta)
 
     def _item_rect(self, index: int) -> RECT | None:
         if index < 0 or index >= len(self.items):
@@ -825,3 +915,15 @@ def _signed_loword(value: int) -> int:
     if loword >= 0x8000:
         loword -= 0x10000
     return loword
+
+
+def _shift_pressed() -> bool:
+    return bool(user32.GetKeyState(VK_SHIFT) & 0x8000)
+
+
+def _ctrl_pressed() -> bool:
+    return bool(user32.GetKeyState(VK_CONTROL) & 0x8000)
+
+
+def _alt_pressed() -> bool:
+    return bool(user32.GetKeyState(VK_MENU) & 0x8000)

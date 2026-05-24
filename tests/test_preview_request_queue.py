@@ -33,6 +33,9 @@ class FakePreview:
     def set_result(self, image_file: ImageFile, result: PreviewResult) -> None:
         self.result_image_file = image_file
 
+    def set_pan_enabled(self, _enabled: bool) -> None:
+        pass
+
 
 class PreviewRequestQueueTest(unittest.TestCase):
     def test_rapid_preview_requests_render_latest_only(self) -> None:
@@ -44,6 +47,8 @@ class PreviewRequestQueueTest(unittest.TestCase):
             image_file: ImageFile,
             max_width: int,
             max_height: int,
+            *,
+            display_mode: str = "fit_area",
         ) -> PreviewResult:
             calls.append(image_file.name)
             return PreviewResult(cache_path=Path(f"{image_file.name}.bmp"), width=max_width, height=max_height)
