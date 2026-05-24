@@ -6,10 +6,12 @@ from pathlib import Path
 
 from app.core.image_scanner import ImageFile
 from app.core.recent_folders import (
+    DEFAULT_CACHE_SIZE_LIMIT_BYTES,
     MAX_FAVORITE_FOLDERS,
     MAX_RECENT_FOLDERS,
     add_favorite_folder,
     add_recent_folder,
+    load_cache_size_limit_bytes,
     load_favorite_folders,
     load_preview_width,
     load_recent_folders,
@@ -17,6 +19,7 @@ from app.core.recent_folders import (
     move_favorite_folder,
     remove_favorite_folder,
     remove_recent_folder,
+    save_cache_size_limit_bytes,
     save_favorite_folders,
     save_preview_width,
     save_recent_folders,
@@ -89,6 +92,24 @@ class RecentFoldersTest(unittest.TestCase):
             settings_path.write_text('{"preview_width": -1}', encoding="utf-8")
 
             self.assertIsNone(load_preview_width(settings_path=settings_path))
+
+    def test_save_and_load_cache_size_limit_preserves_other_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = Path(temp_dir) / "settings.json"
+            recent = [Path("C:/images/recent-a")]
+
+            save_recent_folders(recent, settings_path=settings_path)
+            save_cache_size_limit_bytes(512 * 1024 * 1024, settings_path=settings_path)
+
+            self.assertEqual(load_cache_size_limit_bytes(settings_path=settings_path), 512 * 1024 * 1024)
+            self.assertEqual(load_recent_folders(settings_path=settings_path), recent)
+
+    def test_invalid_cache_size_limit_uses_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = Path(temp_dir) / "settings.json"
+            settings_path.write_text('{"cache_size_limit_bytes": 0}', encoding="utf-8")
+
+            self.assertEqual(load_cache_size_limit_bytes(settings_path=settings_path), DEFAULT_CACHE_SIZE_LIMIT_BYTES)
 
     def test_remove_recent_folder_matches_case_insensitively(self) -> None:
         folders = [Path("C:/Images/A"), Path("C:/Images/B")]

@@ -224,6 +224,28 @@ class FolderSelectionTest(unittest.TestCase):
         self.assertEqual(window.handle_message(0, main_window.WM_COMMAND, w_param, 0), 0)
         self.assertEqual(calls, [True])
 
+    def test_cache_commands_route_to_handlers(self) -> None:
+        window = main_window.MainWindow()
+        calls: list[str] = []
+        window._handle_cache_cleanup = lambda: calls.append("cleanup") or True  # type: ignore[method-assign]
+        window._handle_cache_clear = lambda: calls.append("clear") or True  # type: ignore[method-assign]
+
+        for control_id in [main_window.CACHE_CLEANUP_ID, main_window.CACHE_CLEAR_ID]:
+            w_param = control_id | (main_window.BN_CLICKED << 16)
+            self.assertEqual(window.handle_message(0, main_window.WM_COMMAND, w_param, 0), 0)
+
+        self.assertEqual(calls, ["cleanup", "clear"])
+
+    def test_cache_limit_command_saves_selected_limit(self) -> None:
+        window = main_window.MainWindow()
+        calls: list[int] = []
+        window._change_cache_size_limit = lambda limit: calls.append(limit)  # type: ignore[method-assign]
+
+        w_param = main_window.CACHE_LIMIT_1GB_ID | (main_window.BN_CLICKED << 16)
+
+        self.assertEqual(window.handle_message(0, main_window.WM_COMMAND, w_param, 0), 0)
+        self.assertEqual(calls, [1024 * 1024 * 1024])
+
     def test_compare_commands_route_to_handlers(self) -> None:
         window = main_window.MainWindow()
         calls: list[str] = []

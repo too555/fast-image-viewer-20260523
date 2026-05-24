@@ -16,6 +16,7 @@ from app.core.image_resizer import (
     resize_image_file,
 )
 from app.core.image_scanner import ImageFile, image_file_from_path, scan_image_files
+from app.core.cache_manager import CacheCleanupResult, cache_stats, cleanup_cache, clear_cache
 from app.core.preview_renderer import (
     PREVIEW_MODE_FIT_HEIGHT,
     PREVIEW_MODE_ORIGINAL,
@@ -25,8 +26,10 @@ from app.core.preview_renderer import (
     render_preview,
 )
 from app.core.recent_folders import (
+    DEFAULT_CACHE_SIZE_LIMIT_BYTES,
     add_favorite_folder,
     add_recent_folder,
+    load_cache_size_limit_bytes,
     load_favorite_folders,
     load_preview_width,
     load_recent_folders,
@@ -34,6 +37,7 @@ from app.core.recent_folders import (
     move_favorite_folder,
     remove_favorite_folder,
     remove_recent_folder,
+    save_cache_size_limit_bytes,
     save_favorite_folders,
     save_preview_width,
     save_recent_folders,
@@ -291,6 +295,11 @@ PARENT_FOLDER_ID = 1024
 PREVIOUS_FOLDER_ID = 1025
 NEXT_FOLDER_ID = 1026
 RESIZE_OUTPUT_FOLDER_ID = 1027
+CACHE_CLEANUP_ID = 1028
+CACHE_CLEAR_ID = 1029
+CACHE_LIMIT_512MB_ID = 1030
+CACHE_LIMIT_1GB_ID = 1031
+CACHE_LIMIT_2GB_ID = 1032
 THUMBNAIL_SIZE_64_ID = 1101
 THUMBNAIL_SIZE_128_ID = 1102
 THUMBNAIL_SIZE_256_ID = 1103
@@ -329,6 +338,11 @@ RESIZE_UI_SIZE_OPTIONS = {
 RESIZE_BASIS_OPTIONS = {
     RESIZE_BASIS_WIDTH_ID: (RESIZE_BASIS_WIDTH, "幅"),
     RESIZE_BASIS_HEIGHT_ID: (RESIZE_BASIS_HEIGHT, "高さ"),
+}
+CACHE_SIZE_LIMIT_OPTIONS = {
+    CACHE_LIMIT_512MB_ID: 512 * 1024 * 1024,
+    CACHE_LIMIT_1GB_ID: DEFAULT_CACHE_SIZE_LIMIT_BYTES,
+    CACHE_LIMIT_2GB_ID: 2 * 1024 * 1024 * 1024,
 }
 ZOOM_DISPLAY_MODES = [PREVIEW_MODE_SCALE_50, PREVIEW_MODE_ORIGINAL, PREVIEW_MODE_SCALE_200]
 PAN_DISPLAY_MODES = {PREVIEW_MODE_SCALE_50, PREVIEW_MODE_ORIGINAL, PREVIEW_MODE_SCALE_200}
@@ -483,6 +497,12 @@ class MainWindow:
         self.resize_save_button: int | None = None
         self.resize_output_button: int | None = None
         self.resize_output_label: int | None = None
+        self.cache_group_box: int | None = None
+        self.cache_status_label: int | None = None
+        self.cache_cleanup_button: int | None = None
+        self.cache_clear_button: int | None = None
+        self.cache_limit_label: int | None = None
+        self.cache_limit_buttons: dict[int, int] = {}
         self.compare_a_button: int | None = None
         self.compare_b_button: int | None = None
         self.compare_open_button: int | None = None
@@ -500,6 +520,7 @@ class MainWindow:
         self.resize_size = CORE_RESIZE_SIZE_OPTIONS[0]
         self.resize_basis = RESIZE_BASIS_WIDTH
         self.resize_output_folder = load_resize_output_folder()
+        self.cache_size_limit_bytes = load_cache_size_limit_bytes()
         self.preview_width = load_preview_width()
         self.image_preview = ImagePreview()
         self.fullscreen_preview = FullscreenPreview()
@@ -562,6 +583,7 @@ class MainWindow:
         shell32.DragAcceptFiles(self.hwnd, True)
         self._create_controls()
         self._layout()
+        self._refresh_cache_status()
 
     def destroy(self) -> None:
         self._load_id += 1
@@ -770,6 +792,15 @@ class MainWindow:
             if control_id == RESIZE_SAVE_ID and notification == BN_CLICKED:
                 self._handle_resize_save()
                 return 0
+            if control_id == CACHE_CLEANUP_ID and notification == BN_CLICKED:
+                self._handle_cache_cleanup()
+                return 0
+            if control_id == CACHE_CLEAR_ID and notification == BN_CLICKED:
+                self._handle_cache_clear()
+                return 0
+            if control_id in CACHE_SIZE_LIMIT_OPTIONS and notification == BN_CLICKED:
+                self._change_cache_size_limit(CACHE_SIZE_LIMIT_OPTIONS[control_id])
+                return 0
             if control_id == COMPARE_SET_A_ID and notification == BN_CLICKED:
                 self._handle_set_compare_a()
                 return 0
@@ -804,6 +835,7 @@ class MainWindow:
         self.folder_group_box = self._create_child("BUTTON", "フォルダ操作", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0)
         self.favorite_group_box = self._create_child("BUTTON", "お気に入り", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0)
         self.view_group_box = self._create_child("BUTTON", "表示設定", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0)
+        self.cache_group_box = self._create_child("BUTTON", "キャッシュ管理", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0)
         self.open_button = self._create_child(
             "BUTTON",
             "フォルダ選択",
@@ -937,6 +969,30 @@ class MainWindow:
             WS_CHILD | WS_VISIBLE | SS_ENDELLIPSIS,
             0,
         )
+        self.cache_status_label = self._create_child("STATIC", "キャッシュ: 確認中", WS_CHILD | WS_VISIBLE | SS_ENDELLIPSIS, 0)
+        self.cache_limit_label = self._create_child("STATIC", "上限:", WS_CHILD | WS_VISIBLE, 0)
+        for control_id, limit_bytes in CACHE_SIZE_LIMIT_OPTIONS.items():
+            style = WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON
+            if control_id == CACHE_LIMIT_512MB_ID:
+                style |= WS_GROUP
+            self.cache_limit_buttons[control_id] = self._create_child(
+                "BUTTON",
+                _format_cache_size(limit_bytes),
+                style,
+                control_id,
+            )
+        self.cache_cleanup_button = self._create_child(
+            "BUTTON",
+            "キャッシュ整理",
+            WS_CHILD | WS_VISIBLE,
+            CACHE_CLEANUP_ID,
+        )
+        self.cache_clear_button = self._create_child(
+            "BUTTON",
+            "キャッシュ全削除",
+            WS_CHILD | WS_VISIBLE,
+            CACHE_CLEAR_ID,
+        )
         self.compare_a_button = self._create_child(
             "BUTTON",
             "比較Aに設定",
@@ -964,6 +1020,7 @@ class MainWindow:
         self._check_sort_buttons()
         self._check_display_mode_buttons()
         self._check_resize_buttons()
+        self._check_cache_limit_buttons()
         self.folder_label = self._create_child("STATIC", "フォルダ未選択", WS_CHILD | WS_VISIBLE | SS_PATHELLIPSIS, 0)
         self._refresh_recent_folder_combo()
         self._refresh_favorite_folder_combo()
@@ -1746,6 +1803,7 @@ class MainWindow:
             self.folder_group_box,
             self.favorite_group_box,
             self.view_group_box,
+            self.cache_group_box,
             self.open_button,
             self.parent_folder_button,
             self.previous_folder_button,
@@ -1766,6 +1824,10 @@ class MainWindow:
             self.resize_save_button,
             self.resize_output_button,
             self.resize_output_label,
+            self.cache_status_label,
+            self.cache_cleanup_button,
+            self.cache_clear_button,
+            self.cache_limit_label,
             self.compare_a_button,
             self.compare_b_button,
             self.compare_open_button,
@@ -1808,6 +1870,11 @@ class MainWindow:
         resize_output_button_width = 96 if compact else 110
         compare_button_width = 102 if compact else 112
         compare_open_button_width = 110 if compact else 124
+        cache_status_width = 174 if compact else 220
+        cache_limit_label_width = 42
+        cache_limit_button_width = 58 if compact else 66
+        cache_button_width = 104 if compact else 116
+        cache_clear_button_width = 116 if compact else 128
         display_button_widths = {
             DISPLAY_SCALE_50_ID: 44 if compact else 48,
             DISPLAY_ORIGINAL_ID: 50 if compact else 54,
@@ -1821,7 +1888,8 @@ class MainWindow:
         folder_group_height = 64
         favorite_group_height = 38
         view_group_height = 116
-        top_height = folder_group_height + favorite_group_height + view_group_height + group_margin * 2
+        cache_group_height = 38
+        top_height = folder_group_height + favorite_group_height + view_group_height + cache_group_height + group_margin * 3
         status_height = 28
         content_top = margin + top_height + 10
         content_height = max(120, height - content_top - status_height - margin)
@@ -1846,6 +1914,7 @@ class MainWindow:
         folder_group_y = margin
         favorite_group_y = folder_group_y + folder_group_height + group_margin
         view_group_y = favorite_group_y + favorite_group_height + group_margin
+        cache_group_y = view_group_y + view_group_height + group_margin
         folder_row1_y = folder_group_y + 13
         folder_row2_y = folder_group_y + 38
         favorite_control_y = favorite_group_y + 13
@@ -1853,6 +1922,7 @@ class MainWindow:
         view_row2_y = view_group_y + 38
         view_row3_y = view_group_y + 63
         view_row4_y = view_group_y + 88
+        cache_control_y = cache_group_y + 13
 
         user32.MoveWindow(self.folder_group_box, margin, folder_group_y, group_width, folder_group_height, True)
         user32.MoveWindow(
@@ -1864,6 +1934,7 @@ class MainWindow:
             True,
         )
         user32.MoveWindow(self.view_group_box, margin, view_group_y, group_width, view_group_height, True)
+        user32.MoveWindow(self.cache_group_box, margin, cache_group_y, group_width, cache_group_height, True)
 
         inner_x = margin + group_inner_margin
         inner_right = width - margin - group_inner_margin
@@ -2087,6 +2158,39 @@ class MainWindow:
             22,
             True,
         )
+        cache_x = inner_x
+        user32.MoveWindow(self.cache_status_label, cache_x, cache_control_y + 3, cache_status_width, 18, True)
+        cache_x += cache_status_width + 10
+        user32.MoveWindow(self.cache_limit_label, cache_x, cache_control_y + 3, cache_limit_label_width, 18, True)
+        cache_x += cache_limit_label_width
+        for control_id in CACHE_SIZE_LIMIT_OPTIONS:
+            user32.MoveWindow(
+                self.cache_limit_buttons[control_id],
+                cache_x,
+                cache_control_y,
+                cache_limit_button_width,
+                22,
+                True,
+            )
+            cache_x += cache_limit_button_width + size_button_gap
+        cache_x += 8
+        user32.MoveWindow(
+            self.cache_cleanup_button,
+            cache_x,
+            cache_control_y,
+            cache_button_width,
+            22,
+            True,
+        )
+        cache_x += cache_button_width + size_button_gap
+        user32.MoveWindow(
+            self.cache_clear_button,
+            cache_x,
+            cache_control_y,
+            cache_clear_button_width,
+            22,
+            True,
+        )
         self.thumbnail_grid.move(margin, content_top, grid_width, grid_height)
         self.image_preview.move(preview_x, preview_y, preview_width, preview_height)
         status_y = max(content_top + content_height + 6, height - status_height)
@@ -2215,6 +2319,92 @@ class MainWindow:
         selected_basis_button = self.resize_basis_buttons.get(selected_basis_id)
         if selected_basis_button:
             user32.SendMessageW(selected_basis_button, BM_SETCHECK, BST_CHECKED, 0)
+
+    def _check_cache_limit_buttons(self) -> None:
+        if not self.hwnd:
+            return
+
+        selected_id = next(
+            (
+                control_id
+                for control_id, limit_bytes in CACHE_SIZE_LIMIT_OPTIONS.items()
+                if limit_bytes == self.cache_size_limit_bytes
+            ),
+            CACHE_LIMIT_1GB_ID,
+        )
+        user32.CheckRadioButton(self.hwnd, CACHE_LIMIT_512MB_ID, CACHE_LIMIT_2GB_ID, selected_id)
+        selected_button = self.cache_limit_buttons.get(selected_id)
+        if selected_button:
+            user32.SendMessageW(selected_button, BM_SETCHECK, BST_CHECKED, 0)
+
+    def _change_cache_size_limit(self, limit_bytes: int) -> None:
+        self.cache_size_limit_bytes = limit_bytes
+        self._check_cache_limit_buttons()
+        try:
+            save_cache_size_limit_bytes(limit_bytes)
+        except OSError:
+            self._set_window_text(self.status_bar, "キャッシュ上限を保存できませんでした")
+            return
+        result = self._enforce_cache_limit()
+        suffix = "" if result is None or result.deleted_files == 0 else f"、{result.deleted_files}件整理"
+        self._set_window_text(self.status_bar, f"キャッシュ上限を保存しました: {_format_cache_size(limit_bytes)}{suffix}")
+        self._refresh_cache_status()
+
+    def _handle_cache_cleanup(self) -> bool:
+        try:
+            result = cleanup_cache(self.cache_size_limit_bytes)
+        except Exception as error:
+            self._set_window_text(self.status_bar, f"キャッシュ整理に失敗しました: {error}")
+            return False
+        self._set_cache_cleanup_status("キャッシュを整理しました", result)
+        self._refresh_cache_status()
+        return True
+
+    def _handle_cache_clear(self) -> bool:
+        selected_path = self._selected_image_file.path if self._selected_image_file is not None else None
+        try:
+            result = clear_cache()
+        except Exception as error:
+            self._set_window_text(self.status_bar, f"キャッシュ全削除に失敗しました: {error}")
+            return False
+
+        self._set_cache_cleanup_status("キャッシュを全削除しました", result)
+        self._refresh_cache_status()
+        if self.current_folder is not None and path_is_dir(self.current_folder):
+            self.load_folder(self.current_folder, select_path=selected_path)
+            self._set_cache_cleanup_status("キャッシュを全削除しました", result)
+        return True
+
+    def _set_cache_cleanup_status(self, message: str, result: CacheCleanupResult) -> None:
+        if result.deleted_files == 0:
+            detail = "整理対象はありません"
+        else:
+            detail = f"{result.deleted_files}件 / {_format_cache_size(result.deleted_bytes)}削除"
+        if result.failed_files:
+            detail = f"{detail}（{result.failed_files}件は使用中のため残しました）"
+        self._set_window_text(self.status_bar, f"{message}: {detail}")
+
+    def _enforce_cache_limit(self) -> CacheCleanupResult | None:
+        try:
+            stats = cache_stats()
+            if stats.total_bytes <= self.cache_size_limit_bytes:
+                return None
+            return cleanup_cache(self.cache_size_limit_bytes)
+        except Exception:
+            return None
+
+    def _refresh_cache_status(self, enforce_limit: bool = False) -> None:
+        if enforce_limit:
+            self._enforce_cache_limit()
+        try:
+            stats = cache_stats()
+        except Exception:
+            self._set_window_text(self.cache_status_label, "キャッシュ: 確認できません")
+            return
+        self._set_window_text(self.cache_status_label, self._cache_status_text(stats.total_bytes))
+
+    def _cache_status_text(self, total_bytes: int) -> str:
+        return f"キャッシュ: {_format_cache_size(total_bytes)} / 上限 {_format_cache_size(self.cache_size_limit_bytes)}"
 
     def _change_resize_size(self, resize_size: int) -> None:
         self.resize_size = resize_size
@@ -2484,6 +2674,7 @@ class MainWindow:
         return min(pending_indexes, key=priority)
 
     def _drain_thumbnail_queue(self, ignore_all: bool = False) -> None:
+        cache_changed = False
         while True:
             try:
                 load_id, result = self._thumbnail_queue.get_nowait()
@@ -2495,6 +2686,7 @@ class MainWindow:
 
             self._thumbnail_done += 1
             self.thumbnail_grid.set_thumbnail(result.index, result.cache_path, failed=not result.ok)
+            cache_changed = cache_changed or result.ok
 
         if self._thumbnail_total and not ignore_all:
             if self._thumbnail_done >= self._thumbnail_total:
@@ -2507,6 +2699,8 @@ class MainWindow:
                     f"{self._thumbnail_total}件の画像が見つかりました。サムネイル {self._thumbnail_done}/{self._thumbnail_total} ({self.thumbnail_size}px)",
                     self.current_folder,
                 )
+        if cache_changed and not ignore_all:
+            self._refresh_cache_status(enforce_limit=True)
 
     def _select_image(self, index: int, image_file: ImageFile) -> None:
         self._selected_image_file = image_file
@@ -2644,6 +2838,7 @@ class MainWindow:
             self._fullscreen_id += 1
 
     def _drain_preview_queue(self, ignore_all: bool = False) -> None:
+        cache_changed = False
         while True:
             try:
                 preview_id, image_file, result = self._preview_queue.get_nowait()
@@ -2654,10 +2849,14 @@ class MainWindow:
                 continue
 
             self.image_preview.set_result(image_file, result)
+            cache_changed = cache_changed or result.ok
             if not result.ok:
                 self._set_window_text(self.status_bar, f"プレビューできません: {image_file.name}")
+        if cache_changed and not ignore_all:
+            self._refresh_cache_status(enforce_limit=True)
 
     def _drain_fullscreen_queue(self, ignore_all: bool = False) -> None:
+        cache_changed = False
         while True:
             try:
                 fullscreen_id, image_file, result = self._fullscreen_queue.get_nowait()
@@ -2668,8 +2867,11 @@ class MainWindow:
                 continue
 
             self.fullscreen_preview.set_result(image_file, result)
+            cache_changed = cache_changed or result.ok
             if not result.ok:
                 self._set_window_text(self.status_bar, f"プレビューできません: {image_file.name}")
+        if cache_changed and not ignore_all:
+            self._refresh_cache_status(enforce_limit=True)
 
     def _is_current_preview(self, preview_id: int, image_file: ImageFile | None = None) -> bool:
         with self._preview_lock:
@@ -2793,6 +2995,24 @@ def _folder_display_name(folder: Path) -> str:
 def _folder_parent_display_name(folder: Path) -> str:
     parent = display_path(folder).parent
     return parent.name or parent.drive or parent.anchor or str(parent)
+
+
+def _format_cache_size(size_bytes: int) -> str:
+    size = max(0, int(size_bytes))
+    units = ["B", "KB", "MB", "GB"]
+    value = float(size)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value)}B"
+            if value.is_integer():
+                return f"{int(value)}{unit}"
+            if value >= 100:
+                return f"{value:.0f}{unit}"
+            if value >= 10:
+                return f"{value:.1f}{unit}"
+            return f"{value:.2f}{unit}"
+        value /= 1024
 
 
 def _same_path(left: str | Path, right: str | Path) -> bool:

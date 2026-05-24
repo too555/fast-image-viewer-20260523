@@ -14,6 +14,8 @@ RECENT_FOLDERS_KEY = "recent_folders"
 FAVORITE_FOLDERS_KEY = "favorite_folders"
 PREVIEW_WIDTH_KEY = "preview_width"
 RESIZE_OUTPUT_FOLDER_KEY = "resize_output_folder"
+CACHE_SIZE_LIMIT_BYTES_KEY = "cache_size_limit_bytes"
+DEFAULT_CACHE_SIZE_LIMIT_BYTES = 1024 * 1024 * 1024
 
 
 def settings_file_path() -> Path:
@@ -49,6 +51,16 @@ def load_resize_output_folder(settings_path: Path | None = None) -> Path | None:
     return display_path(raw_folder)
 
 
+def load_cache_size_limit_bytes(settings_path: Path | None = None) -> int:
+    data = _load_settings(settings_path)
+    raw_limit = data.get(CACHE_SIZE_LIMIT_BYTES_KEY) if isinstance(data, dict) else None
+    if isinstance(raw_limit, bool):
+        return DEFAULT_CACHE_SIZE_LIMIT_BYTES
+    if isinstance(raw_limit, int) and raw_limit > 0:
+        return raw_limit
+    return DEFAULT_CACHE_SIZE_LIMIT_BYTES
+
+
 def save_recent_folders(folders: list[Path], settings_path: Path | None = None) -> None:
     _save_folder_list(RECENT_FOLDERS_KEY, folders, MAX_RECENT_FOLDERS, settings_path)
 
@@ -65,6 +77,12 @@ def save_preview_width(width: int, settings_path: Path | None = None) -> None:
 
 def save_resize_output_folder(folder: str | Path, settings_path: Path | None = None) -> None:
     _save_setting(RESIZE_OUTPUT_FOLDER_KEY, str(display_path(folder)), settings_path)
+
+
+def save_cache_size_limit_bytes(limit_bytes: int, settings_path: Path | None = None) -> None:
+    if limit_bytes <= 0:
+        return
+    _save_setting(CACHE_SIZE_LIMIT_BYTES_KEY, int(limit_bytes), settings_path)
 
 
 def add_recent_folder(folders: list[Path], folder: str | Path) -> list[Path]:
