@@ -1,6 +1,6 @@
-# Fast Image Viewer
+﻿# Fast Image Viewer
 
-Step61 MVP. Select or drop a folder, move quickly to the parent folder or sibling folders from buttons or Alt shortcuts, resize the preview pane by dragging its divider and restore that width on restart, choose and remember a resize output folder while keeping the old same-folder save fallback, register two selected images as compare A/B, switch the compare layout between side-by-side, top-bottom, and center-toggle display without modifying originals, switch compare-view modes between normal display, lightweight difference highlighting, left/right alternating display, semi-transparent overlay display with 25%, 50%, or 75% blend ratios, and difference mask display, switch the difference mask color between red, green, and translucent highlight, switch mask sensitivity between weak, medium, and strong, show comparison alignment guides with center lines and a grid, copy the currently displayed left or right compare image information, copy the currently displayed left or right compare image path, show short compare-view copy feedback, swap the left/right compare panes, show each compared image's name, dimensions, and file size, switch compare-view synchronization ON/OFF, synchronize compare-view zoom and pan when sync is ON, allow independent compare-view zoom and pan when sync is OFF, show the compare zoom/sync state, and reset the compare pan position to center, resize the selected image into a new non-overwriting file, open the selected image's containing folder in Explorer, check the categorized in-app operation guide in a scrollable guide window with frequently used operations listed first, copy the current folder or image full path from buttons, right-click menus, fullscreen right-click menus, or keyboard shortcuts, show short fullscreen copy feedback, drop an image file to open its parent folder and select that image, reopen clearly labeled recent folders while confirming their full paths in the status bar, save, remove, reorder, clearly label favorite folders, clean up invalid saved folder entries, browse cached thumbnails, sort the image list, change thumbnail size, preview the selected image, switch preview zoom, pan oversized fixed-ratio previews with clearer cursor feedback, reset pan position by double-clicking, open it in fullscreen with file information and current zoom, and handle long Windows paths more safely.
+Current MVP. Select or drop a folder, move quickly to the parent folder or sibling folders from buttons or Alt shortcuts, resize the preview pane by dragging its divider and restore that width on restart, choose and remember a resize output folder while keeping the old same-folder save fallback, register two selected images as compare A/B, switch the compare layout between side-by-side, top-bottom, and center-toggle display without modifying originals, switch compare-view modes between normal display, lightweight difference highlighting, left/right alternating display, semi-transparent overlay display with 25%, 50%, or 75% blend ratios, and difference mask display, switch the difference mask color between red, green, and translucent highlight, switch mask sensitivity between weak, medium, and strong, show comparison alignment guides with center lines and a grid, copy the currently displayed left or right compare image information, copy the currently displayed left or right compare image path, show short compare-view copy feedback, swap the left/right compare panes, show each compared image's name, dimensions, and file size, switch compare-view synchronization ON/OFF, synchronize compare-view zoom and pan when sync is ON, allow independent compare-view zoom and pan when sync is OFF, show the compare zoom/sync state, and reset the compare pan position to center, resize the selected image into a new non-overwriting file, open the selected image's containing folder in Explorer, check the categorized in-app operation guide in a scrollable guide window with frequently used operations listed first, copy the current folder or image full path from buttons, right-click menus, fullscreen right-click menus, or keyboard shortcuts, show short fullscreen copy feedback, drop an image file to open its parent folder and select that image, reopen clearly labeled recent folders while confirming their full paths in the status bar, save, remove, reorder, clearly label favorite folders, clean up invalid saved folder entries, browse cached thumbnails, sort the image list, change thumbnail size, preview the selected image, switch preview zoom, pan oversized fixed-ratio previews with clearer cursor feedback, reset pan position by double-clicking, open it in fullscreen with file information and current zoom, manage thumbnail/preview cache safely, and handle long Windows paths more safely.
 The current UI uses the Windows standard API from Python and Pillow for thumbnail and preview rendering.
 
 Supported extensions:
@@ -12,25 +12,126 @@ Supported extensions:
 - gif
 - bmp
 
-## Run
+## 初回セットアップ（Windows PowerShell）
 
-Install dependencies first:
+Python 3.11 以上を用意してから、リポジトリ直下で実行します。
+
+```powershell
+python -m venv .venv
+```
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+```powershell
+pip install -r requirements.txt
+```
+
+開発用に editable install する場合:
 
 ```powershell
 pip install -e .
 ```
 
+起動:
+
 ```powershell
 python -m app.main
 ```
 
-Depending on the local Python installation, this may also work:
+`start_app.bat` をダブルクリックして起動することもできます。
+
+## GitHub から clone した場合
 
 ```powershell
-py -m app.main
+git clone <repository-url>
 ```
 
-## Step61 scope
+```powershell
+cd <repository-folder>
+```
+
+その後は上の「初回セットアップ（Windows PowerShell）」と同じ手順で `.venv` 作成、依存関係インストール、起動を行います。
+
+## 環境トラブル時の確認
+
+`.venv\Scripts\python.exe` が日本語パスを `????` のように表示して起動できない場合は、Python本体または環境側のパス処理で失敗しています。その場合は `C:\work\fast-image-viewer` のような英数字だけの短いフォルダへ clone し直し、同じセットアップ手順を実行してください。
+
+## GUIスモーク確認
+
+exe化前や大きめの変更後は、単体テストとGUIスモークを続けて確認します。
+
+```powershell
+python -m unittest discover -s tests
+```
+
+```powershell
+python scripts\gui_smoke_check.py
+```
+
+`.venv` を使う場合:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\gui_smoke_check.py
+```
+
+バッチから実行する場合:
+
+```powershell
+.\run_gui_smoke.bat
+```
+
+GUIスモークでは、以下を1つの流れで確認します。
+
+- アプリ起動
+- フォルダ選択
+- サムネイル表示
+- プレビュー表示
+- 全画面表示
+- 比較表示
+- リサイズ保存
+- キャッシュ管理
+- お気に入り
+- 最近履歴
+
+GUIスモークが作る画像、設定、キャッシュは `test_artifacts` 配下に出力されます。`test_artifacts` はGit管理対象にしません。
+
+## exe化試験（PyInstaller）
+
+exe化前に、通常テストとGUIスモークを先に通します。
+
+```powershell
+python -m unittest discover -s tests
+```
+
+```powershell
+python scripts\gui_smoke_check.py
+```
+
+PyInstaller は開発用依存関係として入れます。
+
+```powershell
+pip install -r requirements-dev.txt
+```
+
+exeを作成します。
+
+```powershell
+.\build_exe.bat
+```
+
+成功すると次のファイルが作成されます。
+
+```text
+dist\高速画像ビューア.exe
+```
+
+作成後は `dist\高速画像ビューア.exe` をダブルクリック、またはPowerShellから起動し、フォルダ選択、サムネイル、プレビュー、全画面、比較表示、リサイズ保存、キャッシュ管理を確認します。
+
+`dist/`、`build/`、`.venv/`、exe本体はGit管理対象にしません。`fast_image_viewer.spec` は再現性のためGit管理してよい設定ファイルです。
+
+## Current scope
 
 - Generate thumbnails for supported image files.
 - Display thumbnails in a scrollable grid.
@@ -251,3 +352,79 @@ py -m app.main
 - Use the categories 画像移動, 表示操作, 全画面操作, パスコピー, and マウス操作.
 - Keep the Japanese operation text aligned with implemented shortcuts and mouse operations.
 - Keep existing thumbnail, preview, fullscreen, copy, and keyboard operations unchanged.
+## exe専用スモーク確認
+
+配布前は exe 作成後に、exe 専用スモーク確認を実行します。
+
+```powershell
+.\build_exe.bat
+```
+
+```powershell
+.\run_exe_smoke.bat
+```
+
+`run_exe_smoke.bat` は `dist\高速画像ビューア.exe` の存在を確認し、exe を起動して数秒以内に落ちないことを確認してから閉じます。exe が見つからない場合や起動できない場合は、原因が分かるメッセージを表示します。
+
+exe の主要機能確認は、これまで通り `python scripts\gui_smoke_check.py` と実際の画面操作で確認します。`dist/`、`build/`、`.venv/`、exe 本体は Git 管理対象にしません。
+## 配布用zip作成
+
+配布前は exe を作成し、exe専用スモーク確認を通してから zip を作成します。
+
+```powershell
+.\build_exe.bat
+```
+
+```powershell
+.\run_exe_smoke.bat
+```
+
+```powershell
+.\create_release_zip.bat
+```
+
+`create_release_zip.bat` は `dist\高速画像ビューア.exe` と `README.md` を `release\高速画像ビューア_YYYYMMDD.zip` にまとめます。`build/`、`.venv/`、`tests/`、`scripts/`、`*.spec`、ソースコード、一時ファイル、ログ、個人ファイルは zip に含めません。
+
+zip 作成後は `scripts\check_release_zip.ps1` で、exe と README の有無、不要フォルダが含まれていないこと、exe サイズが 0 ではないことを確認します。`release/` と `*.zip` は Git 管理対象にしません。
+## zip展開後スモーク確認
+
+配布zipを作成したら、実際に一時フォルダへ展開し、展開先の exe が起動できることを確認します。
+
+```powershell
+.\run_release_zip_smoke.bat
+```
+
+特定のzipを確認したい場合は、zipパスを渡します。
+
+```powershell
+.\run_release_zip_smoke.bat release\高速画像ビューア_YYYYMMDD.zip
+```
+
+この確認では、zip内に `高速画像ビューア.exe` と `README.md` が含まれること、展開後の `高速画像ビューア.exe` が数秒以内に異常終了しないことを確認します。確認後、一時フォルダは安全な場所であることを確認してから削除します。
+## SHA256チェックサム作成
+
+配布zipを作成し、zip展開後スモーク確認まで通したら、SHA256チェックサムを作成します。
+
+```powershell
+.\create_release_sha256.bat
+```
+
+特定のzipを対象にする場合は、zipパスを渡します。
+
+```powershell
+.\create_release_sha256.bat release\高速画像ビューア_YYYYMMDD.zip
+```
+
+作成されるファイルは次の形式です。
+
+```text
+release\高速画像ビューア_YYYYMMDD.zip.sha256
+```
+
+`.sha256` ファイルには、SHA256ハッシュ値とzipファイル名を1行で記録します。確認するときは、PowerShellで次のようにzipのハッシュを再計算し、`.sha256` の値と一致することを見ます。
+
+```powershell
+Get-FileHash -Algorithm SHA256 release\高速画像ビューア_YYYYMMDD.zip
+```
+
+`release/` と `*.sha256` は Git 管理対象にしません。

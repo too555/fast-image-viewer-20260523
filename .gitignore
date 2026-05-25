@@ -1,4 +1,4 @@
-__pycache__/
+﻿__pycache__/
 *.py[cod]
 .pytest_cache/
 .test-localappdata/
@@ -11,6 +11,11 @@ __pycache__/
 
 # Virtual Environment
 .venv/
+
+# Packaging
+build/
+dist/
+*.egg-info/
 
 # Local test data
 .test-localappdata/
@@ -31,4 +36,8 @@ test_artifacts/
 # OS
 Thumbs.db
 .DS_Store
-
+# Release artifacts
+release/
+*.exe
+*.zip
+*.sha256
