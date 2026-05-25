@@ -46,6 +46,7 @@ from app.core.recent_folders import (
 from app.core.thumbnail_cache import THUMBNAIL_SIZE, ThumbnailResult, ensure_thumbnail
 from app.ui.compare_view import CompareView
 from app.ui.fullscreen_preview import FullscreenPreview
+from app.ui.folder_tree import FolderTree
 from app.ui.image_preview import ImagePreview
 from app.ui.operation_guide_dialog import OperationGuideDialog
 from app.ui.thumbnail_grid import ThumbnailGrid
@@ -195,6 +196,7 @@ ole32.CoUninitialize.argtypes = []
 WM_DESTROY = 0x0002
 WM_SIZE = 0x0005
 WM_COMMAND = 0x0111
+WM_NOTIFY = 0x004E
 WM_KEYDOWN = 0x0100
 WM_SYSKEYDOWN = 0x0104
 WM_LBUTTONDOWN = 0x0201
@@ -248,6 +250,9 @@ SW_SHOW = 5
 DEFAULT_GUI_FONT = 17
 IDC_ARROW = 32512
 IDC_SIZEWE = 32644
+FOLDER_TREE_DEFAULT_WIDTH = 260
+FOLDER_TREE_MIN_WIDTH = 180
+FOLDER_TREE_MAX_WIDTH = 420
 MAX_PATH = 260
 MAX_LONG_PATH = 32768
 FOLDER_PATH_DISPLAY_LIMIT = 120
@@ -512,6 +517,7 @@ class MainWindow:
         self.copy_folder_path_button: int | None = None
         self.copy_image_path_button: int | None = None
         self.open_selected_folder_button: int | None = None
+        self.folder_tree = FolderTree()
         self.thumbnail_grid = ThumbnailGrid()
         self.thumbnail_size = THUMBNAIL_SIZE
         self.sort_field = "name"
@@ -547,6 +553,11 @@ class MainWindow:
         self._thumbnail_queue: queue.Queue[tuple[int, ThumbnailResult]] = queue.Queue()
         self._preview_queue: queue.Queue[tuple[int, ImageFile, PreviewResult]] = queue.Queue()
         self._fullscreen_queue: queue.Queue[tuple[int, ImageFile, PreviewResult]] = queue.Queue()
+        self.folder_tree_width = FOLDER_TREE_DEFAULT_WIDTH
+        self._tree_splitter_rect: tuple[int, int, int, int] | None = None
+        self._tree_splitter_dragging = False
+        self._tree_splitter_drag_start_x = 0
+        self._tree_splitter_drag_start_width = FOLDER_TREE_DEFAULT_WIDTH
         self._splitter_rect: tuple[int, int, int, int] | None = None
         self._splitter_dragging = False
         self._splitter_drag_start_x = 0
@@ -589,6 +600,7 @@ class MainWindow:
         self._load_id += 1
         self._cancel_preview_requests()
         self._close_fullscreen()
+        self.folder_tree.destroy()
         self.thumbnail_grid.destroy()
         self.image_preview.destroy()
         self.fullscreen_preview.destroy()
@@ -599,7 +611,7 @@ class MainWindow:
             user32.DestroyWindow(self.hwnd)
             self.hwnd = None
 
-    def load_folder(self, folder: Path, select_path: Path | None = None) -> None:
+    def load_folder(self, folder: Path, select_path: Path | None = None, show_error_dialog: bool = True) -> None:
         folder = display_path(folder)
         select_path = display_path(select_path) if select_path is not None else None
         self._require_controls()
@@ -627,7 +639,8 @@ class MainWindow:
             self.current_folder = None
             self._set_folder_label(None)
             self._set_folder_status("フォルダを読み込めません", folder)
-            user32.MessageBoxW(self.hwnd, self._folder_error_message(folder, error), "フォルダを開けません", 0x10)
+            if show_error_dialog:
+                user32.MessageBoxW(self.hwnd, self._folder_error_message(folder, error), "\u30d5\u30a9\u30eb\u30c0\u3092\u958b\u3051\u307e\u305b\u3093", 0x10)
             return
 
         self.thumbnail_grid.set_items(image_files)
@@ -674,6 +687,10 @@ class MainWindow:
         if message == WM_DROPFILES:
             self._handle_drop_files(w_param)
             return 0
+
+        if message == WM_NOTIFY:
+            if self.folder_tree.handle_notify(l_param):
+                return 0
 
         if message == WM_SYSKEYDOWN:
             if self._handle_folder_navigation_shortcut(int(w_param)):
@@ -818,6 +835,7 @@ class MainWindow:
             self._load_id += 1
             self._cancel_preview_requests()
             self._close_fullscreen()
+            self.folder_tree.destroy()
             self.thumbnail_grid.destroy()
             self.image_preview.destroy()
             self.fullscreen_preview.destroy()
@@ -1024,6 +1042,8 @@ class MainWindow:
         self.folder_label = self._create_child("STATIC", "フォルダ未選択", WS_CHILD | WS_VISIBLE | SS_PATHELLIPSIS, 0)
         self._refresh_recent_folder_combo()
         self._refresh_favorite_folder_combo()
+        self.folder_tree.create(self.hwnd)
+        self.folder_tree.on_folder_selected = self._handle_tree_folder_selected
         self.thumbnail_grid.create(self.hwnd)
         self.thumbnail_grid.on_selection_changed = self._select_image
         self.thumbnail_grid.on_item_activated = self._open_fullscreen
@@ -1256,7 +1276,16 @@ class MainWindow:
         return siblings
 
     def _handle_splitter_mouse_down(self, x: int, y: int) -> bool:
-        if not self.hwnd or not self._point_in_splitter(x, y):
+        if not self.hwnd:
+            return False
+        if self._point_in_tree_splitter(x, y):
+            self._tree_splitter_dragging = True
+            self._tree_splitter_drag_start_x = x
+            self._tree_splitter_drag_start_width = self._current_folder_tree_width()
+            user32.SetCapture(self.hwnd)
+            self._set_splitter_cursor()
+            return True
+        if not self._point_in_splitter(x, y):
             return False
         self._splitter_dragging = True
         self._splitter_drag_start_x = x
@@ -1266,17 +1295,29 @@ class MainWindow:
         return True
 
     def _handle_splitter_mouse_move(self, x: int, y: int) -> bool:
+        if self._tree_splitter_dragging:
+            self.folder_tree_width = self._clamp_folder_tree_width(
+                self._tree_splitter_drag_start_width + (x - self._tree_splitter_drag_start_x)
+            )
+            self._layout()
+            self._set_splitter_cursor()
+            return True
         if self._splitter_dragging:
             self.preview_width = self._clamp_preview_width(self._splitter_drag_start_width - (x - self._splitter_drag_start_x))
             self._layout()
             self._set_splitter_cursor()
             return True
-        if self._point_in_splitter(x, y):
+        if self._point_in_tree_splitter(x, y) or self._point_in_splitter(x, y):
             self._set_splitter_cursor()
             return True
         return False
 
     def _handle_splitter_mouse_up(self) -> bool:
+        if self._tree_splitter_dragging:
+            self._tree_splitter_dragging = False
+            user32.ReleaseCapture()
+            self._set_window_text(self.status_bar, f"フォルダTREE幅を変更しました: {self.folder_tree_width}px")
+            return True
         if not self._splitter_dragging:
             return False
         self._splitter_dragging = False
@@ -1292,8 +1333,21 @@ class MainWindow:
         rect_x, rect_y, rect_width, rect_height = self._splitter_rect
         return rect_x <= x < rect_x + rect_width and rect_y <= y < rect_y + rect_height
 
+    def _point_in_tree_splitter(self, x: int, y: int) -> bool:
+        if self._tree_splitter_rect is None:
+            return False
+        rect_x, rect_y, rect_width, rect_height = self._tree_splitter_rect
+        return rect_x <= x < rect_x + rect_width and rect_y <= y < rect_y + rect_height
+
     def _set_splitter_cursor(self) -> None:
         user32.SetCursor(user32.LoadCursorW(None, ctypes.cast(ctypes.c_void_p(IDC_SIZEWE), wintypes.LPCWSTR)))
+
+    def _current_folder_tree_width(self) -> int:
+        if self.hwnd:
+            rect = RECT()
+            user32.GetClientRect(self.hwnd, ctypes.byref(rect))
+            return self._effective_folder_tree_width(max(0, rect.right - rect.left))
+        return self.folder_tree_width
 
     def _current_preview_width(self) -> int:
         if self.hwnd:
@@ -1301,6 +1355,29 @@ class MainWindow:
             user32.GetClientRect(self.hwnd, ctypes.byref(rect))
             return self._effective_preview_width(max(0, rect.right - rect.left))
         return self.preview_width or 520
+
+    def _default_folder_tree_width(self, window_width: int) -> int:
+        return max(FOLDER_TREE_MIN_WIDTH, min(FOLDER_TREE_DEFAULT_WIDTH, max(FOLDER_TREE_MIN_WIDTH, window_width // 4)))
+
+    def _folder_tree_width_bounds(self, window_width: int) -> tuple[int, int]:
+        min_image_area_width = 420
+        max_width = max(
+            FOLDER_TREE_MIN_WIDTH,
+            min(FOLDER_TREE_MAX_WIDTH, window_width - 12 * 2 - 8 - min_image_area_width),
+        )
+        return FOLDER_TREE_MIN_WIDTH, max_width
+
+    def _effective_folder_tree_width(self, window_width: int) -> int:
+        return self._clamp_folder_tree_width(self.folder_tree_width, window_width)
+
+    def _clamp_folder_tree_width(self, folder_tree_width: int, window_width: int | None = None) -> int:
+        if window_width is None and self.hwnd:
+            rect = RECT()
+            user32.GetClientRect(self.hwnd, ctypes.byref(rect))
+            window_width = max(0, rect.right - rect.left)
+        window_width = max(window_width or 980, 420)
+        min_width, max_width = self._folder_tree_width_bounds(window_width)
+        return max(min_width, min(max_width, int(folder_tree_width)))
 
     def _default_preview_width(self, window_width: int) -> int:
         return max(280, min(520, int(window_width * 0.42)))
@@ -1785,6 +1862,19 @@ class MainWindow:
     def _favorite_folder_display_text(self, folder: Path) -> str:
         return _folder_list_display_label(folder, self.favorite_folders, FAVORITE_FOLDER_DISPLAY_LIMIT)
 
+    def _handle_tree_folder_selected(self, folder: Path) -> None:
+        folder = display_path(folder)
+        if self.current_folder is not None and _same_path(self.current_folder, folder):
+            return
+        try:
+            if not path_is_dir(folder):
+                self._set_folder_status("フォルダへアクセスできません", folder)
+                return
+            self.load_folder(folder, show_error_dialog=False)
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+            self._set_folder_status("フォルダを開けません", folder)
+
     def _folder_from_dropped_path(self, dropped_path: str | Path) -> Path | None:
         drop_target = self._drop_target_from_path(dropped_path)
         return None if drop_target is None else drop_target[0]
@@ -1893,23 +1983,29 @@ class MainWindow:
         status_height = 28
         content_top = margin + top_height + 10
         content_height = max(120, height - content_top - status_height - margin)
-        preview_width = self._effective_preview_width(width)
         gap = 10
-        grid_width = max(160, width - margin * 2 - preview_width - gap)
-        if width < 720:
+        tree_gap = 8
+        tree_width = self._effective_folder_tree_width(width)
+        image_area_x = margin + tree_width + tree_gap
+        image_area_width = max(160, width - image_area_x - margin)
+        preview_width = self._effective_preview_width(width)
+        preview_width = min(preview_width, max(120, image_area_width - gap - 160))
+        grid_width = max(160, image_area_width - preview_width - gap)
+        self._tree_splitter_rect = (margin + tree_width, content_top, tree_gap, content_height)
+        if image_area_width < 540:
             self._splitter_rect = None
             preview_height = max(160, int(content_height * 0.46))
             grid_height = max(120, content_height - preview_height - gap)
-            grid_width = max(120, width - margin * 2)
-            preview_x = margin
+            grid_width = max(120, image_area_width)
+            preview_x = image_area_x
             preview_y = content_top + grid_height + gap
-            preview_width = max(120, width - margin * 2)
+            preview_width = max(120, image_area_width)
         else:
             grid_height = content_height
-            preview_x = margin + grid_width + gap
+            preview_x = image_area_x + grid_width + gap
             preview_y = content_top
             preview_height = content_height
-            self._splitter_rect = (margin + grid_width, content_top, gap, content_height)
+            self._splitter_rect = (image_area_x + grid_width, content_top, gap, content_height)
 
         folder_group_y = margin
         favorite_group_y = folder_group_y + folder_group_height + group_margin
@@ -2191,7 +2287,8 @@ class MainWindow:
             22,
             True,
         )
-        self.thumbnail_grid.move(margin, content_top, grid_width, grid_height)
+        self.folder_tree.move(margin, content_top, tree_width, content_height)
+        self.thumbnail_grid.move(image_area_x, content_top, grid_width, grid_height)
         self.image_preview.move(preview_x, preview_y, preview_width, preview_height)
         status_y = max(content_top + content_height + 6, height - status_height)
         open_folder_x = width - margin - open_folder_button_width
@@ -3126,3 +3223,4 @@ def _window_proc(hwnd: int, message: int, w_param: int, l_param: int) -> int:
             return result
 
     return user32.DefWindowProcW(hwnd, message, w_param, l_param)
+
