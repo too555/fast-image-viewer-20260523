@@ -10,6 +10,11 @@ from app.utils.long_path import display_path, filesystem_path, path_is_dir
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 comctl32 = ctypes.windll.comctl32
+shell32 = ctypes.windll.shell32
+try:
+    uxtheme = ctypes.windll.uxtheme
+except AttributeError:
+    uxtheme = None
 
 kernel32.GetLogicalDrives.argtypes = []
 kernel32.GetLogicalDrives.restype = wintypes.DWORD
@@ -63,11 +68,20 @@ TVM_INSERTITEMW = TV_FIRST + 50
 TVM_DELETEITEM = TV_FIRST + 1
 TVM_GETNEXTITEM = TV_FIRST + 10
 TVM_SETITEMW = TV_FIRST + 63
+TVM_SETIMAGELIST = TV_FIRST + 9
+TVM_SETITEMHEIGHT = TV_FIRST + 27
+TVM_SETEXTENDEDSTYLE = TV_FIRST + 44
 
 TVGN_NEXT = 1
 TVGN_CHILD = 4
 
+TVSIL_NORMAL = 0
+TVS_EX_DOUBLEBUFFER = 0x0004
+TVS_EX_FADEINOUTEXPANDOS = 0x0040
+
 TVIF_TEXT = 0x0001
+TVIF_IMAGE = 0x0002
+TVIF_SELECTEDIMAGE = 0x0020
 TVIF_CHILDREN = 0x0040
 
 TVN_FIRST = -400
@@ -79,7 +93,12 @@ TREEVIEW_CLASS = "SysTreeView32"
 LOADING_LABEL = "読み込み中..."
 FILE_ATTRIBUTE_HIDDEN = 0x00000002
 FILE_ATTRIBUTE_SYSTEM = 0x00000004
+FILE_ATTRIBUTE_DIRECTORY = 0x00000010
 FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
+SHGFI_SMALLICON = 0x000000001
+SHGFI_OPENICON = 0x000000002
+SHGFI_SYSICONINDEX = 0x000004000
+SHGFI_USEFILEATTRIBUTES = 0x000000010
 
 _UINT_PTR_MASK = (1 << (ctypes.sizeof(ctypes.c_void_p) * 8)) - 1
 TVI_ROOT = ctypes.c_void_p((-0x10000) & _UINT_PTR_MASK)
@@ -91,6 +110,29 @@ class INITCOMMONCONTROLSEX(ctypes.Structure):
         ("dwSize", wintypes.DWORD),
         ("dwICC", wintypes.DWORD),
     ]
+
+
+class SHFILEINFOW(ctypes.Structure):
+    _fields_ = [
+        ("hIcon", wintypes.HICON),
+        ("iIcon", ctypes.c_int),
+        ("dwAttributes", wintypes.DWORD),
+        ("szDisplayName", wintypes.WCHAR * 260),
+        ("szTypeName", wintypes.WCHAR * 80),
+    ]
+
+
+shell32.SHGetFileInfoW.argtypes = [
+    wintypes.LPCWSTR,
+    wintypes.DWORD,
+    ctypes.POINTER(SHFILEINFOW),
+    wintypes.UINT,
+    wintypes.UINT,
+]
+shell32.SHGetFileInfoW.restype = ctypes.c_size_t
+if uxtheme is not None:
+    uxtheme.SetWindowTheme.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR]
+    uxtheme.SetWindowTheme.restype = ctypes.c_long
 
 
 class POINT(ctypes.Structure):
@@ -157,12 +199,9 @@ class FolderTree:
             "",
             WS_CHILD
             | WS_VISIBLE
-            | WS_BORDER
             | WS_TABSTOP
             | WS_VSCROLL
             | TVS_HASBUTTONS
-            | TVS_HASLINES
-            | TVS_LINESATROOT
             | TVS_SHOWSELALWAYS
             | TVS_DISABLEDRAGDROP
             | TVS_FULLROWSELECT,
@@ -178,12 +217,24 @@ class FolderTree:
         if not hwnd:
             raise ctypes.WinError()
         self.hwnd = int(hwnd)
+        self._apply_explorer_visuals()
         self._populate_roots()
         return self.hwnd
 
     def move(self, x: int, y: int, width: int, height: int) -> None:
         if self.hwnd:
             user32.MoveWindow(self.hwnd, x, y, width, height, True)
+
+    def _apply_explorer_visuals(self) -> None:
+        if not self.hwnd:
+            return
+        _set_explorer_theme(self.hwnd)
+        image_list = _system_small_image_list()
+        if image_list:
+            user32.SendMessageW(self.hwnd, TVM_SETIMAGELIST, TVSIL_NORMAL, image_list)
+        extended_style = TVS_EX_DOUBLEBUFFER | TVS_EX_FADEINOUTEXPANDOS
+        user32.SendMessageW(self.hwnd, TVM_SETEXTENDEDSTYLE, extended_style, extended_style)
+        user32.SendMessageW(self.hwnd, TVM_SETITEMHEIGHT, 24, 0)
 
     def destroy(self) -> None:
         self._item_paths.clear()
@@ -238,26 +289,30 @@ class FolderTree:
 
     def _add_path_item(self, parent: int, label: str, folder: Path, assume_children: bool) -> int:
         has_children = assume_children or _has_child_folder(folder)
-        item = self._insert_item(parent, label, has_children=has_children)
+        item = self._insert_item(parent, label, has_children=has_children, icon_index=_icon_index_for_path(folder))
         if item:
             self._item_paths[item] = display_path(folder)
             if has_children:
-                self._insert_item(item, LOADING_LABEL, has_children=False)
+                self._insert_item(item, LOADING_LABEL, has_children=False, icon_index=_folder_icon_index())
         return item
 
-    def _insert_item(self, parent: int, label: str, has_children: bool) -> int:
+    def _insert_item(self, parent: int, label: str, has_children: bool, icon_index: int | None = None) -> int:
         if not self.hwnd:
             return 0
         text = ctypes.create_unicode_buffer(label)
+        item_mask = TVIF_TEXT | TVIF_CHILDREN
+        selected_icon_index = icon_index if icon_index is not None else 0
+        if icon_index is not None:
+            item_mask |= TVIF_IMAGE | TVIF_SELECTEDIMAGE
         item = TVITEMW(
-            mask=TVIF_TEXT | TVIF_CHILDREN,
+            mask=item_mask,
             hItem=None,
             state=0,
             stateMask=0,
             pszText=ctypes.cast(text, wintypes.LPWSTR),
             cchTextMax=len(label) + 1,
-            iImage=0,
-            iSelectedImage=0,
+            iImage=selected_icon_index,
+            iSelectedImage=selected_icon_index,
             cChildren=1 if has_children else 0,
             lParam=0,
         )
@@ -441,6 +496,73 @@ def _safe_is_dir(folder: Path) -> bool:
         return path_is_dir(folder)
     except OSError:
         return False
+
+
+_SHELL_ICON_CACHE: dict[str, int] = {}
+_SYSTEM_IMAGE_LIST_HANDLE = 0
+
+
+def _set_explorer_theme(hwnd: int) -> None:
+    if uxtheme is None:
+        return
+    try:
+        uxtheme.SetWindowTheme(hwnd, "Explorer", None)
+    except OSError:
+        return
+
+
+def _system_small_image_list() -> int:
+    global _SYSTEM_IMAGE_LIST_HANDLE
+    if _SYSTEM_IMAGE_LIST_HANDLE:
+        return _SYSTEM_IMAGE_LIST_HANDLE
+    info = SHFILEINFOW()
+    handle = shell32.SHGetFileInfoW(
+        "C:\\",
+        FILE_ATTRIBUTE_DIRECTORY,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+        SHGFI_SYSICONINDEX | SHGFI_SMALLICON,
+    )
+    _SYSTEM_IMAGE_LIST_HANDLE = int(handle or 0)
+    return _SYSTEM_IMAGE_LIST_HANDLE
+
+
+def _icon_index_for_path(folder: Path) -> int:
+    folder = display_path(folder)
+    if _is_drive_root(folder):
+        return _drive_icon_index(folder)
+    return _folder_icon_index()
+
+
+def _folder_icon_index() -> int:
+    return _shell_icon_index("folder", "folder", FILE_ATTRIBUTE_DIRECTORY, SHGFI_USEFILEATTRIBUTES)
+
+
+def _drive_icon_index(folder: Path) -> int:
+    key = f"drive:{str(folder).casefold()}"
+    return _shell_icon_index(key, str(folder), FILE_ATTRIBUTE_DIRECTORY, 0)
+
+
+def _shell_icon_index(cache_key: str, path_text: str, attributes: int, flags: int) -> int:
+    cached = _SHELL_ICON_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    info = SHFILEINFOW()
+    result = shell32.SHGetFileInfoW(
+        path_text,
+        attributes,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+        SHGFI_SYSICONINDEX | SHGFI_SMALLICON | flags,
+    )
+    icon_index = int(info.iIcon if result else 0)
+    _SHELL_ICON_CACHE[cache_key] = icon_index
+    return icon_index
+
+
+def _is_drive_root(folder: Path) -> bool:
+    folder = display_path(folder)
+    return bool(folder.drive and folder.parent == folder)
 
 
 def _folder_label(folder: Path) -> str:
