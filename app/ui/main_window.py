@@ -305,6 +305,7 @@ CACHE_CLEAR_ID = 1029
 CACHE_LIMIT_512MB_ID = 1030
 CACHE_LIMIT_1GB_ID = 1031
 CACHE_LIMIT_2GB_ID = 1032
+OPEN_CURRENT_FOLDER_ID = 1033
 THUMBNAIL_SIZE_64_ID = 1101
 THUMBNAIL_SIZE_128_ID = 1102
 THUMBNAIL_SIZE_256_ID = 1103
@@ -513,6 +514,8 @@ class MainWindow:
         self.compare_open_button: int | None = None
         self.operation_guide_button: int | None = None
         self.folder_label: int | None = None
+        self.current_path_label: int | None = None
+        self.current_path_open_button: int | None = None
         self.status_bar: int | None = None
         self.copy_folder_path_button: int | None = None
         self.copy_image_path_button: int | None = None
@@ -785,6 +788,9 @@ class MainWindow:
             if control_id == OPEN_SELECTED_FOLDER_ID and notification == BN_CLICKED:
                 self._handle_open_selected_image_folder()
                 return 0
+            if control_id == OPEN_CURRENT_FOLDER_ID and notification == BN_CLICKED:
+                self._handle_open_current_folder()
+                return 0
             if control_id in THUMBNAIL_SIZE_OPTIONS and notification == BN_CLICKED:
                 self._change_thumbnail_size(THUMBNAIL_SIZE_OPTIONS[control_id])
                 return 0
@@ -1040,6 +1046,13 @@ class MainWindow:
         self._check_resize_buttons()
         self._check_cache_limit_buttons()
         self.folder_label = self._create_child("STATIC", "フォルダ未選択", WS_CHILD | WS_VISIBLE | SS_PATHELLIPSIS, 0)
+        self.current_path_label = self._create_child("STATIC", "\u30d5\u30a9\u30eb\u30c0\u672a\u9078\u629e", WS_CHILD | WS_VISIBLE | SS_PATHELLIPSIS, 0)
+        self.current_path_open_button = self._create_child(
+            "BUTTON",
+            "\u30a8\u30af\u30b9\u30d7\u30ed\u30fc\u30e9\u30fc\u3067\u958b\u304f",
+            WS_CHILD | WS_VISIBLE,
+            OPEN_CURRENT_FOLDER_ID,
+        )
         self._refresh_recent_folder_combo()
         self._refresh_favorite_folder_combo()
         self.folder_tree.create(self.hwnd)
@@ -1594,6 +1607,12 @@ class MainWindow:
             return False
         return self._copy_path_to_clipboard(self._selected_image_file.path, "画像パス")
 
+    def _handle_open_current_folder(self) -> bool:
+        if self.current_folder is None:
+            self._set_window_text(self.status_bar, "\u958b\u304f\u30d5\u30a9\u30eb\u30c0\u304c\u3042\u308a\u307e\u305b\u3093")
+            return False
+        return self._open_folder_in_explorer(self.current_folder, "\u73fe\u5728\u30d5\u30a9\u30eb\u30c0")
+
     def _handle_open_selected_image_folder(self) -> bool:
         if self._selected_image_file is None:
             self._set_window_text(self.status_bar, "保存先を開く画像が選択されていません")
@@ -1922,6 +1941,8 @@ class MainWindow:
             self.compare_b_button,
             self.compare_open_button,
             self.folder_label,
+            self.current_path_label,
+            self.current_path_open_button,
             self.status_bar,
             self.copy_folder_path_button,
             self.copy_image_path_button,
@@ -1985,27 +2006,31 @@ class MainWindow:
         content_height = max(120, height - content_top - status_height - margin)
         gap = 10
         tree_gap = 8
+        path_bar_height = 24
+        path_bar_gap = 6
         tree_width = self._effective_folder_tree_width(width)
         image_area_x = margin + tree_width + tree_gap
         image_area_width = max(160, width - image_area_x - margin)
+        image_content_top = content_top + path_bar_height + path_bar_gap
+        image_content_height = max(80, content_height - path_bar_height - path_bar_gap)
         preview_width = self._effective_preview_width(width)
         preview_width = min(preview_width, max(120, image_area_width - gap - 160))
         grid_width = max(160, image_area_width - preview_width - gap)
         self._tree_splitter_rect = (margin + tree_width, content_top, tree_gap, content_height)
         if image_area_width < 540:
             self._splitter_rect = None
-            preview_height = max(160, int(content_height * 0.46))
-            grid_height = max(120, content_height - preview_height - gap)
+            preview_height = max(160, int(image_content_height * 0.46))
+            grid_height = max(120, image_content_height - preview_height - gap)
             grid_width = max(120, image_area_width)
             preview_x = image_area_x
-            preview_y = content_top + grid_height + gap
+            preview_y = image_content_top + grid_height + gap
             preview_width = max(120, image_area_width)
         else:
-            grid_height = content_height
+            grid_height = image_content_height
             preview_x = image_area_x + grid_width + gap
-            preview_y = content_top
-            preview_height = content_height
-            self._splitter_rect = (image_area_x + grid_width, content_top, gap, content_height)
+            preview_y = image_content_top
+            preview_height = image_content_height
+            self._splitter_rect = (image_area_x + grid_width, image_content_top, gap, image_content_height)
 
         folder_group_y = margin
         favorite_group_y = folder_group_y + folder_group_height + group_margin
@@ -2287,8 +2312,19 @@ class MainWindow:
             22,
             True,
         )
+        current_path_button_width = 138 if compact else 160
+        current_path_label_width = max(80, image_area_width - current_path_button_width - size_button_gap)
+        user32.MoveWindow(self.current_path_label, image_area_x, content_top + 3, current_path_label_width, 18, True)
+        user32.MoveWindow(
+            self.current_path_open_button,
+            image_area_x + current_path_label_width + size_button_gap,
+            content_top,
+            current_path_button_width,
+            22,
+            True,
+        )
         self.folder_tree.move(margin, content_top, tree_width, content_height)
-        self.thumbnail_grid.move(image_area_x, content_top, grid_width, grid_height)
+        self.thumbnail_grid.move(image_area_x, image_content_top, grid_width, grid_height)
         self.image_preview.move(preview_x, preview_y, preview_width, preview_height)
         status_y = max(content_top + content_height + 6, height - status_height)
         open_folder_x = width - margin - open_folder_button_width
@@ -3003,7 +3039,10 @@ class MainWindow:
         return f"{message}: {display_path(folder)}"
 
     def _set_folder_label(self, folder: Path | None) -> None:
-        self._set_window_text(self.folder_label, "フォルダ未選択" if folder is None else self._folder_display_text(folder))
+        folder_text = "\u30d5\u30a9\u30eb\u30c0\u672a\u9078\u629e" if folder is None else self._folder_display_text(folder)
+        path_text = "\u30d5\u30a9\u30eb\u30c0\u672a\u9078\u629e" if folder is None else str(display_path(folder))
+        self._set_window_text(self.folder_label, folder_text)
+        self._set_window_text(self.current_path_label, path_text)
 
     def _folder_display_text(self, folder: Path) -> str:
         return _compact_middle_text(str(folder), FOLDER_PATH_DISPLAY_LIMIT)
@@ -3023,7 +3062,14 @@ class MainWindow:
 
     def _require_controls(self) -> None:
         self._require_window()
-        if not all([self.folder_label, self.status_bar, self.thumbnail_grid.hwnd, self.image_preview.hwnd]):
+        if not all([
+            self.folder_label,
+            self.current_path_label,
+            self.current_path_open_button,
+            self.status_bar,
+            self.thumbnail_grid.hwnd,
+            self.image_preview.hwnd,
+        ]):
             raise RuntimeError("Window controls have not been created.")
 
 
