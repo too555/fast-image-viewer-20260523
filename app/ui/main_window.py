@@ -9,6 +9,8 @@ import traceback
 from ctypes import wintypes
 from pathlib import Path
 
+from PIL import Image, UnidentifiedImageError
+
 from app.core.image_resizer import (
     RESIZE_BASIS_HEIGHT,
     RESIZE_BASIS_WIDTH,
@@ -256,6 +258,7 @@ FOLDER_TREE_MAX_WIDTH = 420
 MAX_PATH = 260
 MAX_LONG_PATH = 32768
 FOLDER_PATH_DISPLAY_LIMIT = 120
+STATUS_FILENAME_DISPLAY_LIMIT = 72
 RECENT_FOLDER_DISPLAY_LIMIT = 76
 FAVORITE_FOLDER_DISPLAY_LIMIT = 72
 VK_LEFT = 0x25
@@ -516,6 +519,11 @@ class MainWindow:
         self.folder_label: int | None = None
         self.current_path_label: int | None = None
         self.current_path_open_button: int | None = None
+        self.status_count_label: int | None = None
+        self.status_name_label: int | None = None
+        self.status_dimensions_label: int | None = None
+        self.status_file_size_label: int | None = None
+        self.status_loading_label: int | None = None
         self.status_bar: int | None = None
         self.copy_folder_path_button: int | None = None
         self.copy_image_path_button: int | None = None
@@ -556,6 +564,8 @@ class MainWindow:
         self._thumbnail_queue: queue.Queue[tuple[int, ThumbnailResult]] = queue.Queue()
         self._preview_queue: queue.Queue[tuple[int, ImageFile, PreviewResult]] = queue.Queue()
         self._fullscreen_queue: queue.Queue[tuple[int, ImageFile, PreviewResult]] = queue.Queue()
+        self._status_loading_text = ""
+        self._image_dimension_cache: dict[Path, tuple[int, int] | None] = {}
         self.folder_tree_width = FOLDER_TREE_DEFAULT_WIDTH
         self._tree_splitter_rect: tuple[int, int, int, int] | None = None
         self._tree_splitter_dragging = False
@@ -634,6 +644,7 @@ class MainWindow:
         self._drain_thumbnail_queue(ignore_all=True)
         self._drain_preview_queue(ignore_all=True)
         self._set_folder_label(folder)
+        self._refresh_status_details("読み込み中")
         self._set_folder_status("フォルダを読み込み中", folder)
 
         try:
@@ -641,6 +652,7 @@ class MainWindow:
         except (FileNotFoundError, NotADirectoryError, PermissionError) as error:
             self.current_folder = None
             self._set_folder_label(None)
+            self._refresh_status_details("")
             self._set_folder_status("フォルダを読み込めません", folder)
             if show_error_dialog:
                 user32.MessageBoxW(self.hwnd, self._folder_error_message(folder, error), "\u30d5\u30a9\u30eb\u30c0\u3092\u958b\u3051\u307e\u305b\u3093", 0x10)
@@ -648,11 +660,13 @@ class MainWindow:
 
         self.thumbnail_grid.set_items(image_files)
         self._thumbnail_total = len(image_files)
+        self._refresh_status_details("読み込み中" if image_files else "")
         self._remember_recent_folder(folder)
         if self.thumbnail_grid.hwnd:
             user32.SetFocus(self.thumbnail_grid.hwnd)
 
         if not image_files:
+            self._refresh_status_details("")
             self._set_folder_status("画像が見つかりません", folder)
             return
 
@@ -1096,6 +1110,11 @@ class MainWindow:
         self.fullscreen_preview.on_context_menu = self._handle_fullscreen_context_menu
         self.fullscreen_preview.on_copy_image_path = self._handle_fullscreen_copy_image_path
         self.fullscreen_preview.on_copy_folder_path = self._handle_fullscreen_copy_folder_path
+        self.status_count_label = self._create_child("STATIC", "\u753b\u50cf: -", WS_CHILD | WS_VISIBLE | SS_ENDELLIPSIS, 0)
+        self.status_name_label = self._create_child("STATIC", "", WS_CHILD | WS_VISIBLE | SS_ENDELLIPSIS, 0)
+        self.status_dimensions_label = self._create_child("STATIC", "", WS_CHILD | WS_VISIBLE | SS_ENDELLIPSIS, 0)
+        self.status_file_size_label = self._create_child("STATIC", "", WS_CHILD | WS_VISIBLE | SS_ENDELLIPSIS, 0)
+        self.status_loading_label = self._create_child("STATIC", "", WS_CHILD | WS_VISIBLE | SS_ENDELLIPSIS, 0)
         self.status_bar = self._create_child("STATIC", "フォルダを選択してください", WS_CHILD | WS_VISIBLE | SS_ENDELLIPSIS, 0)
         self.copy_folder_path_button = self._create_child(
             "BUTTON",
@@ -1943,6 +1962,11 @@ class MainWindow:
             self.folder_label,
             self.current_path_label,
             self.current_path_open_button,
+            self.status_count_label,
+            self.status_name_label,
+            self.status_dimensions_label,
+            self.status_file_size_label,
+            self.status_loading_label,
             self.status_bar,
             self.copy_folder_path_button,
             self.copy_image_path_button,
@@ -2001,7 +2025,7 @@ class MainWindow:
         view_group_height = 116
         cache_group_height = 38
         top_height = folder_group_height + favorite_group_height + view_group_height + cache_group_height + group_margin * 3
-        status_height = 28
+        status_height = 54
         content_top = margin + top_height + 10
         content_height = max(120, height - content_top - status_height - margin)
         gap = 10
@@ -2326,7 +2350,21 @@ class MainWindow:
         self.folder_tree.move(margin, content_top, tree_width, content_height)
         self.thumbnail_grid.move(image_area_x, image_content_top, grid_width, grid_height)
         self.image_preview.move(preview_x, preview_y, preview_width, preview_height)
-        status_y = max(content_top + content_height + 6, height - status_height)
+        status_info_y = max(content_top + content_height + 6, height - status_height)
+        status_message_y = status_info_y + 26
+        status_right = width - margin
+        fixed_status_width = 96 + 120 + 112 + (132 if compact else 156) + size_button_gap * 4
+        status_name_width = max(90, status_right - margin - fixed_status_width)
+        status_x = margin
+        user32.MoveWindow(self.status_count_label, status_x, status_info_y + 3, 96, 18, True)
+        status_x += 96 + size_button_gap
+        user32.MoveWindow(self.status_name_label, status_x, status_info_y + 3, status_name_width, 18, True)
+        status_x += status_name_width + size_button_gap
+        user32.MoveWindow(self.status_dimensions_label, status_x, status_info_y + 3, 120, 18, True)
+        status_x += 120 + size_button_gap
+        user32.MoveWindow(self.status_file_size_label, status_x, status_info_y + 3, 112, 18, True)
+        status_x += 112 + size_button_gap
+        user32.MoveWindow(self.status_loading_label, status_x, status_info_y + 3, max(80, status_right - status_x), 18, True)
         open_folder_x = width - margin - open_folder_button_width
         copy_image_x = open_folder_x - size_button_gap - copy_image_button_width
         copy_folder_x = copy_image_x - size_button_gap - copy_folder_button_width
@@ -2334,7 +2372,7 @@ class MainWindow:
         user32.MoveWindow(
             self.status_bar,
             margin,
-            status_y,
+            status_message_y,
             status_width,
             22,
             True,
@@ -2342,7 +2380,7 @@ class MainWindow:
         user32.MoveWindow(
             self.copy_folder_path_button,
             copy_folder_x,
-            status_y,
+            status_message_y,
             copy_folder_button_width,
             22,
             True,
@@ -2350,7 +2388,7 @@ class MainWindow:
         user32.MoveWindow(
             self.copy_image_path_button,
             copy_image_x,
-            status_y,
+            status_message_y,
             copy_image_button_width,
             22,
             True,
@@ -2358,7 +2396,7 @@ class MainWindow:
         user32.MoveWindow(
             self.open_selected_folder_button,
             open_folder_x,
-            status_y,
+            status_message_y,
             open_folder_button_width,
             22,
             True,
@@ -2379,9 +2417,11 @@ class MainWindow:
         self._thumbnail_total = len(image_files)
 
         if not image_files:
+            self._refresh_status_details("")
             self._set_window_text(self.status_bar, "画像が見つかりません" if self.current_folder else "フォルダを選択してください")
             return
 
+        self._refresh_status_details("サムネイル読み込み中")
         self._set_window_text(
             self.status_bar,
             f"{len(image_files)}件の画像が見つかりました。{thumbnail_size}pxサムネイルを先読み中...",
@@ -2739,7 +2779,9 @@ class MainWindow:
         else:
             self._selected_image_file = None
             self.image_preview.clear()
+            self._refresh_status_details("")
 
+        self._refresh_status_details("サムネイル読み込み中")
         self._set_window_text(
             self.status_bar,
             f"{len(image_files)}件の画像を並び替えました。サムネイルを更新中...",
@@ -2823,11 +2865,13 @@ class MainWindow:
 
         if self._thumbnail_total and not ignore_all:
             if self._thumbnail_done >= self._thumbnail_total:
+                self._refresh_status_details("完了")
                 self._set_folder_status(
                     f"{self._thumbnail_total}件の画像が見つかりました。サムネイルサイズ {self.thumbnail_size}px",
                     self.current_folder,
                 )
             else:
+                self._refresh_status_details(f"読込中 {self._thumbnail_done}/{self._thumbnail_total}")
                 self._set_folder_status(
                     f"{self._thumbnail_total}件の画像が見つかりました。サムネイル {self._thumbnail_done}/{self._thumbnail_total} ({self.thumbnail_size}px)",
                     self.current_folder,
@@ -2841,6 +2885,7 @@ class MainWindow:
         self._start_preview_worker(image_file)
         if self.fullscreen_preview.visible:
             self._start_fullscreen_worker(image_file)
+        self._refresh_status_details("プレビュー読み込み中")
         self._set_window_text(self.status_bar, f"選択中: {image_file.name}")
 
     def _open_fullscreen(self, *_args: object) -> None:
@@ -2894,6 +2939,7 @@ class MainWindow:
         self._drain_preview_queue(ignore_all=True)
         if show_loading:
             self.image_preview.set_loading(image_file)
+            self._refresh_status_details("プレビュー読み込み中")
 
     def _start_fullscreen_worker(self, image_file: ImageFile) -> None:
         self.fullscreen_preview.show_loading(
@@ -2983,6 +3029,7 @@ class MainWindow:
 
             self.image_preview.set_result(image_file, result)
             cache_changed = cache_changed or result.ok
+            self._refresh_status_details("完了" if result.ok else "プレビュー不可")
             if not result.ok:
                 self._set_window_text(self.status_bar, f"プレビューできません: {image_file.name}")
         if cache_changed and not ignore_all:
@@ -3019,6 +3066,45 @@ class MainWindow:
         if image_file is None:
             return is_current and self.fullscreen_preview.visible
         return is_current and self.fullscreen_preview.visible and image_file == self._selected_image_file
+
+    def _refresh_status_details(self, loading_text: str | None = None) -> None:
+        if loading_text is not None:
+            self._status_loading_text = loading_text
+        total = len(self.thumbnail_grid.items)
+        image_count_text = f"画像: {total}件" if self.current_folder is not None else "画像: -"
+        image_file = self._selected_image_file
+        if image_file is None:
+            name_text = ""
+            dimensions_text = ""
+            file_size_text = ""
+        else:
+            name_text = f"選択: {_compact_middle_text(image_file.name, STATUS_FILENAME_DISPLAY_LIMIT)}"
+            dimensions_text = f"サイズ: {self._image_dimensions_text(image_file)}"
+            file_size_text = f"容量: {_format_cache_size(image_file.size)}"
+        self._set_window_text(self.status_count_label, image_count_text)
+        self._set_window_text(self.status_name_label, name_text)
+        self._set_window_text(self.status_dimensions_label, dimensions_text)
+        self._set_window_text(self.status_file_size_label, file_size_text)
+        self._set_window_text(self.status_loading_label, self._status_loading_text)
+
+    def _image_dimensions_text(self, image_file: ImageFile) -> str:
+        dimensions = self._image_dimensions(image_file)
+        if dimensions is None:
+            return "不明"
+        width, height = dimensions
+        return f"{width}×{height}"
+
+    def _image_dimensions(self, image_file: ImageFile) -> tuple[int, int] | None:
+        key = display_path(image_file.path)
+        if key in self._image_dimension_cache:
+            return self._image_dimension_cache[key]
+        try:
+            with Image.open(filesystem_path(key)) as image:
+                dimensions = (int(image.width), int(image.height))
+        except (OSError, UnidentifiedImageError, ValueError):
+            dimensions = None
+        self._image_dimension_cache[key] = dimensions
+        return dimensions
 
     def _message_loop(self) -> None:
         msg = wintypes.MSG()
@@ -3066,6 +3152,11 @@ class MainWindow:
             self.folder_label,
             self.current_path_label,
             self.current_path_open_button,
+            self.status_count_label,
+            self.status_name_label,
+            self.status_dimensions_label,
+            self.status_file_size_label,
+            self.status_loading_label,
             self.status_bar,
             self.thumbnail_grid.hwnd,
             self.image_preview.hwnd,
