@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import time
 from collections import OrderedDict
 from ctypes import wintypes
 from math import ceil
@@ -258,6 +259,8 @@ class ThumbnailGrid:
         self.on_parent_folder = None
         self.on_previous_folder = None
         self.on_next_folder = None
+        self.on_scroll_started = None
+        self.on_paint_completed = None
         self.thumbnail_size = THUMBNAIL_SIZE
         self.scroll_y = 0
         self._bitmap_cache: OrderedDict[Path, int] = OrderedDict()
@@ -501,6 +504,7 @@ class ThumbnailGrid:
         if not self.hwnd:
             return
 
+        paint_started_at = time.perf_counter()
         ps = PAINTSTRUCT()
         hdc = user32.BeginPaint(self.hwnd, ctypes.byref(ps))
         try:
@@ -521,6 +525,9 @@ class ThumbnailGrid:
             gdi32.SelectObject(hdc, old_font)
         finally:
             user32.EndPaint(self.hwnd, ctypes.byref(ps))
+        if self.on_paint_completed is not None:
+            start, end = self.visible_index_range()
+            self.on_paint_completed((time.perf_counter() - paint_started_at) * 1000.0, max(0, end - start))
 
     def _draw_empty_state(self, hdc: int, client: RECT) -> None:
         text_rect = RECT(0, 0, client.right - client.left, client.bottom - client.top)
@@ -800,6 +807,8 @@ class ThumbnailGrid:
         new_scroll = max(0, min(value, self._max_scroll()))
         if new_scroll == self.scroll_y:
             return
+        if self.on_scroll_started is not None:
+            self.on_scroll_started()
         self.scroll_y = new_scroll
         self._update_scrollbar()
         self._notify_visible_range_changed()

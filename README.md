@@ -97,6 +97,23 @@ GUIスモークでは、以下を1つの流れで確認します。
 
 GUIスモークが作る画像、設定、キャッシュは `test_artifacts` 配下に出力されます。`test_artifacts` はGit管理対象にしません。
 
+## ベンチマーク確認
+
+大量画像フォルダの性能を数値で確認したい場合は、ベンチマークモードを有効にして起動します。通常起動ではログは出ません。
+
+```powershell
+$env:FAST_IMAGE_VIEWER_BENCHMARK = "1"
+python -m app.main
+```
+
+既定では `%LOCALAPPDATA%\FastImageViewer\benchmark.log` に、フォルダ読み込み時間、初回サムネイル生成時間、初回描画時間、スクロール時応答時間、サムネイルキャッシュヒット数、簡易メモリ使用量を記録します。ログ保存先を変えたい場合は `FAST_IMAGE_VIEWER_BENCHMARK_LOG` にファイルパスを指定します。
+
+```powershell
+$env:FAST_IMAGE_VIEWER_BENCHMARK_LOG = "C:\temp\fast_image_viewer_benchmark.log"
+```
+
+ベンチマーク中はステータスバーにも `BM ...` 形式で簡易値を表示します。高速化前後の比較では、同じフォルダ、同じサムネイルサイズ、同じ表示倍率で確認してください。
+
 ## exe化試験（PyInstaller）
 
 exe化前に、通常テストとGUIスモークを先に通します。

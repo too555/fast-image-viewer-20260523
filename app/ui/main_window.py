@@ -12,6 +12,7 @@ from pathlib import Path
 
 from PIL import Image, UnidentifiedImageError
 
+from app.core.benchmark import BenchmarkRecorder
 from app.core.image_resizer import (
     RESIZE_BASIS_HEIGHT,
     RESIZE_BASIS_WIDTH,
@@ -570,6 +571,7 @@ class MainWindow:
         self._fullscreen_queue: queue.Queue[tuple[int, ImageFile, PreviewResult]] = queue.Queue()
         self._status_loading_text = ""
         self._image_dimension_cache: dict[Path, tuple[int, int] | None] = {}
+        self.benchmark = BenchmarkRecorder()
         self.folder_tree_width = FOLDER_TREE_DEFAULT_WIDTH
         self._tree_splitter_rect: tuple[int, int, int, int] | None = None
         self._tree_splitter_dragging = False
@@ -645,6 +647,7 @@ class MainWindow:
         self._thumbnail_total = 0
         self.thumbnail_grid.set_items([])
         self.image_preview.clear()
+        self.benchmark.start_folder_load(folder)
         self._drain_thumbnail_queue(ignore_all=True)
         self._drain_preview_queue(ignore_all=True)
         self._set_folder_label(folder)
@@ -654,6 +657,7 @@ class MainWindow:
         try:
             image_files = self._sorted_image_files(scan_image_files(folder))
         except (FileNotFoundError, NotADirectoryError, PermissionError) as error:
+            self.benchmark.record_error("folder_load_failed", str(error))
             self.current_folder = None
             self._set_folder_label(None)
             self._refresh_status_details("")
@@ -664,6 +668,7 @@ class MainWindow:
 
         self.thumbnail_grid.set_items(image_files)
         self._thumbnail_total = len(image_files)
+        self.benchmark.record_folder_loaded(len(image_files))
         self._refresh_status_details("読み込み中" if image_files else "")
         self._remember_recent_folder(folder)
         if self.thumbnail_grid.hwnd:
@@ -1088,6 +1093,8 @@ class MainWindow:
         self.thumbnail_grid.on_parent_folder = self._handle_open_parent_folder
         self.thumbnail_grid.on_previous_folder = self._handle_open_previous_folder
         self.thumbnail_grid.on_next_folder = self._handle_open_next_folder
+        self.thumbnail_grid.on_scroll_started = self._handle_thumbnail_scroll_started
+        self.thumbnail_grid.on_paint_completed = self._handle_thumbnail_paint_completed
         self.image_preview.create(self.hwnd)
         self.image_preview.on_activated = self._open_fullscreen
         self.image_preview.on_files_dropped = self._handle_drop_files
@@ -2858,6 +2865,15 @@ class MainWindow:
 
         return min(pending_indexes, key=priority)
 
+    def _handle_thumbnail_scroll_started(self) -> None:
+        self.benchmark.start_scroll()
+
+    def _handle_thumbnail_paint_completed(self, paint_ms: float, visible_count: int) -> None:
+        if not self.benchmark.enabled:
+            return
+        self.benchmark.record_paint(paint_ms, visible_count)
+        self._refresh_status_details()
+
     def _drain_thumbnail_queue(self, ignore_all: bool = False) -> None:
         cache_changed = False
         processed_count = 0
@@ -2873,6 +2889,7 @@ class MainWindow:
                 continue
 
             self._thumbnail_done += 1
+            self.benchmark.record_thumbnail_result(result.cache_hit, self._thumbnail_done, self._thumbnail_total)
             self.thumbnail_grid.set_thumbnail(result.index, result.cache_path, failed=not result.ok)
             cache_changed = cache_changed or result.ok
             processed_count += 1
@@ -3101,7 +3118,15 @@ class MainWindow:
         self._set_window_text(self.status_name_label, name_text)
         self._set_window_text(self.status_dimensions_label, dimensions_text)
         self._set_window_text(self.status_file_size_label, file_size_text)
-        self._set_window_text(self.status_loading_label, self._status_loading_text)
+        status_loading_text = self._status_loading_text
+        benchmark_status_text = self.benchmark.status_text()
+        if benchmark_status_text:
+            status_loading_text = (
+                f"{status_loading_text} / {benchmark_status_text}"
+                if status_loading_text
+                else benchmark_status_text
+            )
+        self._set_window_text(self.status_loading_label, status_loading_text)
 
     def _image_dimensions_text(self, image_file: ImageFile) -> str:
         dimensions = self._image_dimensions(image_file)

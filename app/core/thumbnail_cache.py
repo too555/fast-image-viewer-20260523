@@ -18,6 +18,7 @@ class ThumbnailResult:
     index: int
     cache_path: Path | None
     error: str | None = None
+    cache_hit: bool = False
 
     @property
     def ok(self) -> bool:
@@ -55,7 +56,7 @@ def ensure_thumbnail(
 ) -> ThumbnailResult:
     cache_path = thumbnail_cache_path(image_file, thumbnail_size, cache_dir)
     if path_exists(cache_path):
-        return ThumbnailResult(index=index, cache_path=cache_path)
+        return ThumbnailResult(index=index, cache_path=cache_path, cache_hit=True)
 
     make_dirs(cache_path.parent)
     try:

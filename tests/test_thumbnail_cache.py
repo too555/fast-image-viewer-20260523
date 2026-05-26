@@ -21,9 +21,16 @@ class ThumbnailCacheTest(unittest.TestCase):
             result = ensure_thumbnail(0, image_file, cache_dir=folder / "cache")
 
             self.assertTrue(result.ok)
+            self.assertFalse(result.cache_hit)
             self.assertIsNotNone(result.cache_path)
             with Image.open(result.cache_path) as thumbnail:
                 self.assertEqual(thumbnail.size, (THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+
+            cached_result = ensure_thumbnail(0, image_file, cache_dir=folder / "cache")
+
+            self.assertTrue(cached_result.ok)
+            self.assertTrue(cached_result.cache_hit)
+            self.assertEqual(cached_result.cache_path, result.cache_path)
 
     def test_generates_requested_thumbnail_sizes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
