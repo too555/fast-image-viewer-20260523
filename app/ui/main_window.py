@@ -5,6 +5,7 @@ import os
 import queue
 import sys
 import threading
+import time
 import traceback
 from ctypes import wintypes
 from pathlib import Path
@@ -51,7 +52,7 @@ from app.ui.fullscreen_preview import FullscreenPreview
 from app.ui.folder_tree import FolderTree
 from app.ui.image_preview import ImagePreview
 from app.ui.operation_guide_dialog import OperationGuideDialog
-from app.ui.thumbnail_grid import ThumbnailGrid
+from app.ui.thumbnail_grid import PREFETCH_EXTRA_ROWS, ThumbnailGrid
 from app.utils.image_types import SUPPORTED_IMAGE_EXTENSIONS
 from app.utils.long_path import display_path, filesystem_path, path_exists, path_is_dir
 
@@ -261,6 +262,9 @@ FOLDER_PATH_DISPLAY_LIMIT = 120
 STATUS_FILENAME_DISPLAY_LIMIT = 72
 RECENT_FOLDER_DISPLAY_LIMIT = 76
 FAVORITE_FOLDER_DISPLAY_LIMIT = 72
+THUMBNAIL_DRAIN_BATCH_SIZE = 96
+THUMBNAIL_WORKER_YIELD_INTERVAL = 32
+THUMBNAIL_QUEUE_BACKLOG_LIMIT = 192
 VK_LEFT = 0x25
 VK_UP = 0x26
 VK_RIGHT = 0x27
@@ -2805,10 +2809,11 @@ class MainWindow:
         return None
 
     def _start_thumbnail_worker(self, load_id: int, image_files: list[ImageFile], thumbnail_size: int) -> None:
-        self._set_thumbnail_priority_range(*self.thumbnail_grid.visible_index_range(extra_rows=2))
+        self._set_thumbnail_priority_range(*self.thumbnail_grid.visible_index_range(extra_rows=PREFETCH_EXTRA_ROWS))
 
         def worker() -> None:
             pending_indexes = set(range(len(image_files)))
+            generated_count = 0
             while pending_indexes:
                 if load_id != self._load_id:
                     return
@@ -2822,6 +2827,11 @@ class MainWindow:
                 hwnd = self.hwnd
                 if hwnd:
                     user32.PostMessageW(hwnd, WM_THUMBNAIL_READY, 0, 0)
+                generated_count += 1
+                if generated_count % THUMBNAIL_WORKER_YIELD_INTERVAL == 0:
+                    while load_id == self._load_id and self._thumbnail_queue.qsize() > THUMBNAIL_QUEUE_BACKLOG_LIMIT:
+                        time.sleep(0.01)
+                    time.sleep(0.001)
 
         thread = threading.Thread(target=worker, name="thumbnail-worker", daemon=True)
         thread.start()
@@ -2850,7 +2860,10 @@ class MainWindow:
 
     def _drain_thumbnail_queue(self, ignore_all: bool = False) -> None:
         cache_changed = False
+        processed_count = 0
         while True:
+            if not ignore_all and processed_count >= THUMBNAIL_DRAIN_BATCH_SIZE:
+                break
             try:
                 load_id, result = self._thumbnail_queue.get_nowait()
             except queue.Empty:
@@ -2862,6 +2875,7 @@ class MainWindow:
             self._thumbnail_done += 1
             self.thumbnail_grid.set_thumbnail(result.index, result.cache_path, failed=not result.ok)
             cache_changed = cache_changed or result.ok
+            processed_count += 1
 
         if self._thumbnail_total and not ignore_all:
             if self._thumbnail_done >= self._thumbnail_total:
@@ -2878,6 +2892,8 @@ class MainWindow:
                 )
         if cache_changed and not ignore_all:
             self._refresh_cache_status(enforce_limit=True)
+        if not ignore_all and not self._thumbnail_queue.empty() and self.hwnd:
+            user32.PostMessageW(self.hwnd, WM_THUMBNAIL_READY, 0, 0)
 
     def _select_image(self, index: int, image_file: ImageFile) -> None:
         self._selected_image_file = image_file

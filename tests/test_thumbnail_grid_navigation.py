@@ -78,6 +78,44 @@ class ThumbnailGridNavigationTest(unittest.TestCase):
 
         self.assertEqual(grid.visible_index_range(extra_rows=1), (4, 14))
 
+    def test_index_near_visible_tracks_virtual_scroll_window(self) -> None:
+        grid = ThumbnailGrid()
+        grid._client_width = lambda: 400  # type: ignore[method-assign]
+        grid._client_height = lambda: 430  # type: ignore[method-assign]
+        grid.set_items(_items(100))
+        grid.scroll_y = grid._cell_height() * 10
+
+        start, end = grid.visible_index_range(extra_rows=1)
+
+        self.assertTrue(grid._is_index_near_visible(start, extra_rows=1))
+        self.assertFalse(grid._is_index_near_visible(start - 1, extra_rows=1))
+        self.assertFalse(grid._is_index_near_visible(end, extra_rows=1))
+
+    def test_bitmap_cache_limit_is_bounded_to_visible_window(self) -> None:
+        grid = ThumbnailGrid()
+        grid._client_width = lambda: 400  # type: ignore[method-assign]
+        grid._client_height = lambda: 430  # type: ignore[method-assign]
+        grid.set_items(_items(10000))
+        grid.scroll_y = grid._cell_height() * 1000
+
+        start, end = grid.visible_index_range(extra_rows=thumbnail_grid.BITMAP_CACHE_EXTRA_ROWS)
+
+        self.assertEqual(grid._bitmap_cache_limit(), max(24, min(thumbnail_grid.MAX_BITMAP_CACHE, end - start)))
+        self.assertLess(grid._bitmap_cache_limit(), len(grid.items))
+
+    def test_visible_range_callback_prefetches_scroll_surroundings(self) -> None:
+        grid = ThumbnailGrid()
+        grid._client_width = lambda: 400  # type: ignore[method-assign]
+        grid._client_height = lambda: 430  # type: ignore[method-assign]
+        grid.set_items(_items(100))
+        grid.scroll_y = grid._cell_height() * 10
+        reported: list[tuple[int, int]] = []
+        grid.on_visible_range_changed = lambda start, end: reported.append((start, end))  # type: ignore[method-assign]
+
+        grid._notify_visible_range_changed()
+
+        self.assertEqual(reported[-1], grid.visible_index_range(extra_rows=thumbnail_grid.PREFETCH_EXTRA_ROWS))
+
     def test_set_thumbnail_reports_only_real_cell_changes(self) -> None:
         grid = ThumbnailGrid()
         grid.set_items(_items(2))

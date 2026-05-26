@@ -173,6 +173,8 @@ VK_F = 0x46
 CELL_PADDING = 14
 NAME_HEIGHT = 38
 MAX_BITMAP_CACHE = 128
+PREFETCH_EXTRA_ROWS = 4
+BITMAP_CACHE_EXTRA_ROWS = 4
 CLASS_NAME = "FastImageViewerThumbnailGrid"
 
 
@@ -350,6 +352,8 @@ class ThumbnailGrid:
 
     def _invalidate_item(self, index: int) -> None:
         if not self.hwnd:
+            return
+        if not self._is_index_near_visible(index, extra_rows=1):
             return
         rect = self._item_rect(index)
         if rect is None:
@@ -543,6 +547,7 @@ class ThumbnailGrid:
                 if not _rects_intersect(item_rect, paint_rect):
                     continue
                 self._draw_item(hdc, index, x, y)
+        self._trim_bitmap_cache_to_visible()
 
     def _draw_item(self, hdc: int, index: int, x: int, y: int) -> None:
         thumbnail_size = self.thumbnail_size
@@ -628,15 +633,44 @@ class ThumbnailGrid:
             return None
 
         self._bitmap_cache[cache_path] = int(loaded)
-        while len(self._bitmap_cache) > self._bitmap_cache_limit():
-            _, old_hbitmap = self._bitmap_cache.popitem(last=False)
-            gdi32.DeleteObject(old_hbitmap)
+        self._trim_bitmap_cache_to_limit()
         return int(loaded)
 
     def _clear_bitmap_cache(self) -> None:
         for hbitmap in self._bitmap_cache.values():
             gdi32.DeleteObject(hbitmap)
         self._bitmap_cache.clear()
+
+    def _trim_bitmap_cache_to_visible(self, extra_rows: int = BITMAP_CACHE_EXTRA_ROWS) -> None:
+        if not self._bitmap_cache:
+            return
+        if not self.items:
+            self._clear_bitmap_cache()
+            return
+
+        start, end = self.visible_index_range(extra_rows=extra_rows)
+        keep_paths = {
+            cache_path
+            for index in range(start, end)
+            if (cache_path := self.thumbnails.get(index)) is not None
+        }
+        if self.selected_index is not None:
+            selected_cache_path = self.thumbnails.get(self.selected_index)
+            if selected_cache_path is not None:
+                keep_paths.add(selected_cache_path)
+
+        for cache_path in list(self._bitmap_cache.keys()):
+            if cache_path in keep_paths:
+                continue
+            hbitmap = self._bitmap_cache.pop(cache_path)
+            gdi32.DeleteObject(hbitmap)
+        self._trim_bitmap_cache_to_limit()
+
+    def _trim_bitmap_cache_to_limit(self) -> None:
+        limit = self._bitmap_cache_limit()
+        while len(self._bitmap_cache) > limit:
+            _, old_hbitmap = self._bitmap_cache.popitem(last=False)
+            gdi32.DeleteObject(old_hbitmap)
 
     def _handle_vscroll(self, request: int) -> None:
         if request == SB_LINEUP:
@@ -769,6 +803,7 @@ class ThumbnailGrid:
         self.scroll_y = new_scroll
         self._update_scrollbar()
         self._notify_visible_range_changed()
+        self._trim_bitmap_cache_to_visible()
         self.invalidate()
 
     def _update_scrollbar(self) -> None:
@@ -823,6 +858,10 @@ class ThumbnailGrid:
         end = min(len(self.items), max(start, last_row * columns))
         return (start, end)
 
+    def _is_index_near_visible(self, index: int, extra_rows: int = 0) -> bool:
+        start, end = self.visible_index_range(extra_rows=extra_rows)
+        return start <= index < end
+
     def _cell_width(self) -> int:
         return self.thumbnail_size + CELL_PADDING * 2 + 12
 
@@ -831,10 +870,15 @@ class ThumbnailGrid:
 
     def _bitmap_cache_limit(self) -> int:
         if self.thumbnail_size >= 256:
-            return 48
-        if self.thumbnail_size <= 64:
-            return 192
-        return MAX_BITMAP_CACHE
+            base_limit = 48
+        elif self.thumbnail_size <= 64:
+            base_limit = 192
+        else:
+            base_limit = MAX_BITMAP_CACHE
+
+        start, end = self.visible_index_range(extra_rows=BITMAP_CACHE_EXTRA_ROWS)
+        visible_limit = max(1, end - start)
+        return max(24, min(base_limit, visible_limit))
 
     def _client_rect(self) -> RECT:
         rect = RECT()
@@ -851,7 +895,7 @@ class ThumbnailGrid:
 
     def _notify_visible_range_changed(self) -> None:
         if self.on_visible_range_changed is not None:
-            start, end = self.visible_index_range(extra_rows=2)
+            start, end = self.visible_index_range(extra_rows=PREFETCH_EXTRA_ROWS)
             self.on_visible_range_changed(start, end)
 
 
