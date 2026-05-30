@@ -2038,13 +2038,13 @@ class MainWindow:
         width = max(0, rect.right - rect.left)
         height = max(0, rect.bottom - rect.top)
 
-        margin = 8
-        group_margin = 4
-        group_inner_margin = 8
+        margin = 6
+        group_margin = 2
+        group_inner_margin = 6
         compact = width < 760
-        button_width = 112 if compact else 120
-        folder_nav_button_width = 82 if compact else 96
-        cleanup_button_width = 112 if compact else 124
+        button_width = 98 if compact else 108
+        folder_nav_button_width = 66 if compact else 76
+        cleanup_button_width = 104 if compact else 116
         favorite_button_width = 94 if compact else 108
         favorite_move_button_width = 46 if compact else 56
         size_button_width = 44 if compact else 50
@@ -2080,18 +2080,16 @@ class MainWindow:
         copy_image_button_width = 100 if compact else 116
         open_folder_button_width = 104 if compact else 118
         group_width = max(120, width - margin * 2)
-        folder_group_height = 58
-        favorite_group_height = 36
-        view_group_height = 102
-        cache_group_height = 36
-        top_height = folder_group_height + favorite_group_height + view_group_height + cache_group_height + group_margin * 3
-        status_height = 48
-        content_top = margin + top_height + 6
+        control_height = 22
+        row_gap = 2
+        top_height = control_height * 6 + row_gap * 5
+        status_height = 44
+        content_top = margin + top_height + 4
         content_height = max(120, height - content_top - status_height - margin)
-        gap = 8
-        tree_gap = 6
-        path_bar_height = 24
-        path_bar_gap = 4
+        gap = 6
+        tree_gap = 5
+        path_bar_height = 22
+        path_bar_gap = 2
         tree_width = self._effective_folder_tree_width(width)
         image_area_x = margin + tree_width + tree_gap
         image_area_width = max(160, width - image_area_x - margin)
@@ -2116,30 +2114,25 @@ class MainWindow:
             preview_height = image_content_height
             self._splitter_rect = (image_area_x + grid_width, image_content_top, gap, image_content_height)
 
-        folder_group_y = margin
-        favorite_group_y = folder_group_y + folder_group_height + group_margin
-        view_group_y = favorite_group_y + favorite_group_height + group_margin
-        cache_group_y = view_group_y + view_group_height + group_margin
-        folder_row1_y = folder_group_y + 12
-        folder_row2_y = folder_group_y + 34
-        favorite_control_y = favorite_group_y + 12
-        view_row1_y = view_group_y + 12
-        view_row2_y = view_group_y + 34
-        view_row3_y = view_group_y + 56
-        view_row4_y = view_group_y + 78
-        cache_control_y = cache_group_y + 12
+        top_row1_y = margin
+        top_row2_y = top_row1_y + control_height + row_gap
+        top_row3_y = top_row2_y + control_height + row_gap
+        top_row4_y = top_row3_y + control_height + row_gap
+        top_row5_y = top_row4_y + control_height + row_gap
+        top_row6_y = top_row5_y + control_height + row_gap
+        folder_row1_y = top_row1_y
+        folder_row2_y = top_row1_y
+        favorite_control_y = top_row2_y
+        view_row1_y = top_row3_y
+        view_row2_y = top_row4_y
+        view_row3_y = top_row5_y
+        view_row4_y = top_row4_y
+        cache_control_y = top_row6_y
 
-        user32.MoveWindow(self.folder_group_box, margin, folder_group_y, group_width, folder_group_height, True)
-        user32.MoveWindow(
-            self.favorite_group_box,
-            margin,
-            favorite_group_y,
-            group_width,
-            favorite_group_height,
-            True,
-        )
-        user32.MoveWindow(self.view_group_box, margin, view_group_y, group_width, view_group_height, True)
-        user32.MoveWindow(self.cache_group_box, margin, cache_group_y, group_width, cache_group_height, True)
+        user32.MoveWindow(self.folder_group_box, 0, 0, 0, 0, True)
+        user32.MoveWindow(self.favorite_group_box, 0, 0, 0, 0, True)
+        user32.MoveWindow(self.view_group_box, 0, 0, 0, 0, True)
+        user32.MoveWindow(self.cache_group_box, 0, 0, 0, 0, True)
 
         inner_x = margin + group_inner_margin
         inner_right = width - margin - group_inner_margin
@@ -2173,7 +2166,7 @@ class MainWindow:
             True,
         )
         folder_button_x += folder_nav_button_width + 10
-        cleanup_button_x = min(folder_button_x, max(inner_x, inner_right - cleanup_button_width))
+        cleanup_button_x = max(folder_button_x, inner_right - cleanup_button_width)
         user32.MoveWindow(
             self.cleanup_invalid_button,
             cleanup_button_x,
@@ -2182,20 +2175,20 @@ class MainWindow:
             22,
             True,
         )
-        recent_label_width = 112
-        recent_label_x = inner_x
+        recent_label_width = 96
+        recent_label_x = folder_button_x
         recent_combo_x = recent_label_x + recent_label_width + 6
-        remaining_after_recent = max(120, inner_right - recent_combo_x)
-        recent_combo_target_width = int(remaining_after_recent * 0.45) if compact else 300
-        recent_combo_width = min(320, max(120, recent_combo_target_width))
-        folder_x = recent_combo_x + recent_combo_width + 10
+        remaining_after_recent = max(120, cleanup_button_x - recent_combo_x - 8)
+        recent_combo_target_width = int(remaining_after_recent * 0.45) if compact else 220
+        recent_combo_width = min(260, max(80, recent_combo_target_width))
+        folder_x = recent_combo_x + recent_combo_width + 8
         user32.MoveWindow(self.recent_label, recent_label_x, folder_row2_y + 3, recent_label_width, 18, True)
         user32.MoveWindow(self.recent_combo, recent_combo_x, folder_row2_y, recent_combo_width, 220, True)
         user32.MoveWindow(
             self.folder_label,
             folder_x,
             folder_row2_y + 3,
-            max(90, inner_right - folder_x),
+            max(0, cleanup_button_x - folder_x - 8),
             18,
             True,
         )
@@ -2291,7 +2284,7 @@ class MainWindow:
                 True,
             )
             display_x += button_width_for_mode + size_button_gap
-        guide_button_x = min(display_x + 10, max(inner_x, inner_right - guide_button_width))
+        guide_button_x = display_x + 8
         user32.MoveWindow(
             self.operation_guide_button,
             guide_button_x,
@@ -2352,7 +2345,8 @@ class MainWindow:
             18,
             True,
         )
-        compare_x = inner_x
+        compare_total_width = compare_button_width * 2 + compare_open_button_width + size_button_gap * 2
+        compare_x = max(guide_button_x + guide_button_width + 12, inner_right - compare_total_width)
         user32.MoveWindow(self.compare_a_button, compare_x, view_row4_y, compare_button_width, 22, True)
         compare_x += compare_button_width + size_button_gap
         user32.MoveWindow(self.compare_b_button, compare_x, view_row4_y, compare_button_width, 22, True)
