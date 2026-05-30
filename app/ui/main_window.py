@@ -1423,7 +1423,7 @@ class MainWindow:
         return max(min_width, min(max_width, int(folder_tree_width)))
 
     def _default_preview_width(self, window_width: int) -> int:
-        return max(280, min(520, int(window_width * 0.42)))
+        return max(320, min(600, int(window_width * 0.46)))
 
     def _preview_width_bounds(self, window_width: int) -> tuple[int, int]:
         min_grid_width = 160
@@ -1990,9 +1990,9 @@ class MainWindow:
         width = max(0, rect.right - rect.left)
         height = max(0, rect.bottom - rect.top)
 
-        margin = 12
-        group_margin = 8
-        group_inner_margin = 10
+        margin = 8
+        group_margin = 4
+        group_inner_margin = 8
         compact = width < 760
         button_width = 112 if compact else 120
         folder_nav_button_width = 82 if compact else 96
@@ -2031,18 +2031,18 @@ class MainWindow:
         copy_image_button_width = 100 if compact else 116
         open_folder_button_width = 104 if compact else 118
         group_width = max(120, width - margin * 2)
-        folder_group_height = 64
-        favorite_group_height = 38
-        view_group_height = 116
-        cache_group_height = 38
+        folder_group_height = 58
+        favorite_group_height = 36
+        view_group_height = 102
+        cache_group_height = 36
         top_height = folder_group_height + favorite_group_height + view_group_height + cache_group_height + group_margin * 3
-        status_height = 54
-        content_top = margin + top_height + 10
+        status_height = 48
+        content_top = margin + top_height + 6
         content_height = max(120, height - content_top - status_height - margin)
-        gap = 10
-        tree_gap = 8
+        gap = 8
+        tree_gap = 6
         path_bar_height = 24
-        path_bar_gap = 6
+        path_bar_gap = 4
         tree_width = self._effective_folder_tree_width(width)
         image_area_x = margin + tree_width + tree_gap
         image_area_width = max(160, width - image_area_x - margin)
@@ -2071,14 +2071,14 @@ class MainWindow:
         favorite_group_y = folder_group_y + folder_group_height + group_margin
         view_group_y = favorite_group_y + favorite_group_height + group_margin
         cache_group_y = view_group_y + view_group_height + group_margin
-        folder_row1_y = folder_group_y + 13
-        folder_row2_y = folder_group_y + 38
-        favorite_control_y = favorite_group_y + 13
-        view_row1_y = view_group_y + 13
-        view_row2_y = view_group_y + 38
-        view_row3_y = view_group_y + 63
-        view_row4_y = view_group_y + 88
-        cache_control_y = cache_group_y + 13
+        folder_row1_y = folder_group_y + 12
+        folder_row2_y = folder_group_y + 34
+        favorite_control_y = favorite_group_y + 12
+        view_row1_y = view_group_y + 12
+        view_row2_y = view_group_y + 34
+        view_row3_y = view_group_y + 56
+        view_row4_y = view_group_y + 78
+        cache_control_y = cache_group_y + 12
 
         user32.MoveWindow(self.folder_group_box, margin, folder_group_y, group_width, folder_group_height, True)
         user32.MoveWindow(
@@ -2361,8 +2361,8 @@ class MainWindow:
         self.folder_tree.move(margin, content_top, tree_width, content_height)
         self.thumbnail_grid.move(image_area_x, image_content_top, grid_width, grid_height)
         self.image_preview.move(preview_x, preview_y, preview_width, preview_height)
-        status_info_y = max(content_top + content_height + 6, height - status_height)
-        status_message_y = status_info_y + 26
+        status_info_y = max(content_top + content_height + 4, height - status_height)
+        status_message_y = status_info_y + 24
         status_right = width - margin
         fixed_status_width = 96 + 120 + 112 + (132 if compact else 156) + size_button_gap * 4
         status_name_width = max(90, status_right - margin - fixed_status_width)
