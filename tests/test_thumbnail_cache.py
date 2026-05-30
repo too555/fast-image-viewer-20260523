@@ -39,7 +39,7 @@ class ThumbnailCacheTest(unittest.TestCase):
             Image.new("RGB", (800, 300), (160, 80, 40)).save(source)
             image_file = scan_image_files(folder)[0]
 
-            for thumbnail_size in (64, 128, 256):
+            for thumbnail_size in (64, 96, 128, 160, 256):
                 result = ensure_thumbnail(0, image_file, thumbnail_size=thumbnail_size, cache_dir=folder / "cache")
 
                 self.assertTrue(result.ok)

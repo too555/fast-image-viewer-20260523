@@ -15,7 +15,10 @@ FAVORITE_FOLDERS_KEY = "favorite_folders"
 PREVIEW_WIDTH_KEY = "preview_width"
 RESIZE_OUTPUT_FOLDER_KEY = "resize_output_folder"
 CACHE_SIZE_LIMIT_BYTES_KEY = "cache_size_limit_bytes"
+THUMBNAIL_SIZE_KEY = "thumbnail_size"
 DEFAULT_CACHE_SIZE_LIMIT_BYTES = 1024 * 1024 * 1024
+DEFAULT_THUMBNAIL_SIZE = 128
+THUMBNAIL_SIZE_OPTIONS = {64, 96, 128, 160, 256}
 
 
 def settings_file_path() -> Path:
@@ -61,6 +64,16 @@ def load_cache_size_limit_bytes(settings_path: Path | None = None) -> int:
     return DEFAULT_CACHE_SIZE_LIMIT_BYTES
 
 
+def load_thumbnail_size(settings_path: Path | None = None) -> int:
+    data = _load_settings(settings_path)
+    raw_size = data.get(THUMBNAIL_SIZE_KEY) if isinstance(data, dict) else None
+    if isinstance(raw_size, bool):
+        return DEFAULT_THUMBNAIL_SIZE
+    if isinstance(raw_size, int) and raw_size in THUMBNAIL_SIZE_OPTIONS:
+        return raw_size
+    return DEFAULT_THUMBNAIL_SIZE
+
+
 def save_recent_folders(folders: list[Path], settings_path: Path | None = None) -> None:
     _save_folder_list(RECENT_FOLDERS_KEY, folders, MAX_RECENT_FOLDERS, settings_path)
 
@@ -83,6 +96,12 @@ def save_cache_size_limit_bytes(limit_bytes: int, settings_path: Path | None = N
     if limit_bytes <= 0:
         return
     _save_setting(CACHE_SIZE_LIMIT_BYTES_KEY, int(limit_bytes), settings_path)
+
+
+def save_thumbnail_size(thumbnail_size: int, settings_path: Path | None = None) -> None:
+    if thumbnail_size not in THUMBNAIL_SIZE_OPTIONS:
+        return
+    _save_setting(THUMBNAIL_SIZE_KEY, int(thumbnail_size), settings_path)
 
 
 def add_recent_folder(folders: list[Path], folder: str | Path) -> list[Path]:

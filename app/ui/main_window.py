@@ -38,6 +38,7 @@ from app.core.recent_folders import (
     load_preview_width,
     load_recent_folders,
     load_resize_output_folder,
+    load_thumbnail_size,
     move_favorite_folder,
     remove_favorite_folder,
     remove_recent_folder,
@@ -46,8 +47,9 @@ from app.core.recent_folders import (
     save_preview_width,
     save_recent_folders,
     save_resize_output_folder,
+    save_thumbnail_size,
 )
-from app.core.thumbnail_cache import THUMBNAIL_SIZE, ThumbnailResult, ensure_thumbnail
+from app.core.thumbnail_cache import ThumbnailResult, ensure_thumbnail
 from app.ui.compare_view import CompareView
 from app.ui.fullscreen_preview import FullscreenPreview
 from app.ui.folder_tree import FolderTree
@@ -67,6 +69,7 @@ gdi32 = ctypes.windll.gdi32
 shell32 = ctypes.windll.shell32
 ole32 = ctypes.windll.ole32
 kernel32 = ctypes.windll.kernel32
+comctl32 = ctypes.windll.comctl32
 
 kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
 kernel32.GetModuleHandleW.restype = wintypes.HINSTANCE
@@ -78,6 +81,8 @@ kernel32.GlobalUnlock.argtypes = [wintypes.HANDLE]
 kernel32.GlobalUnlock.restype = wintypes.BOOL
 kernel32.GlobalFree.argtypes = [wintypes.HANDLE]
 kernel32.GlobalFree.restype = wintypes.HANDLE
+comctl32.InitCommonControlsEx.argtypes = [ctypes.c_void_p]
+comctl32.InitCommonControlsEx.restype = wintypes.BOOL
 
 user32.CreateWindowExW.argtypes = [
     wintypes.DWORD,
@@ -201,6 +206,7 @@ WM_DESTROY = 0x0002
 WM_SIZE = 0x0005
 WM_COMMAND = 0x0111
 WM_NOTIFY = 0x004E
+WM_HSCROLL = 0x0114
 WM_KEYDOWN = 0x0100
 WM_SYSKEYDOWN = 0x0104
 WM_LBUTTONDOWN = 0x0201
@@ -248,6 +254,14 @@ WS_GROUP = 0x00020000
 WS_VSCROLL = 0x00200000
 SS_ENDELLIPSIS = 0x00004000
 SS_PATHELLIPSIS = 0x00008000
+TBS_AUTOTICKS = 0x0001
+TBS_NOTICKS = 0x0010
+TBM_GETPOS = WM_USER
+TBM_SETPOS = WM_USER + 5
+TBM_SETRANGE = WM_USER + 6
+TBM_SETTICFREQ = WM_USER + 20
+ICC_BAR_CLASSES = 0x00000004
+TRACKBAR_CLASS = "msctls_trackbar32"
 
 CW_USEDEFAULT = -2147483648
 SW_SHOW = 5
@@ -314,14 +328,20 @@ CACHE_LIMIT_512MB_ID = 1030
 CACHE_LIMIT_1GB_ID = 1031
 CACHE_LIMIT_2GB_ID = 1032
 OPEN_CURRENT_FOLDER_ID = 1033
+THUMBNAIL_SIZE_SLIDER_ID = 1034
 THUMBNAIL_SIZE_64_ID = 1101
-THUMBNAIL_SIZE_128_ID = 1102
-THUMBNAIL_SIZE_256_ID = 1103
+THUMBNAIL_SIZE_96_ID = 1102
+THUMBNAIL_SIZE_128_ID = 1103
+THUMBNAIL_SIZE_160_ID = 1104
+THUMBNAIL_SIZE_256_ID = 1105
 THUMBNAIL_SIZE_OPTIONS = {
     THUMBNAIL_SIZE_64_ID: 64,
+    THUMBNAIL_SIZE_96_ID: 96,
     THUMBNAIL_SIZE_128_ID: 128,
+    THUMBNAIL_SIZE_160_ID: 160,
     THUMBNAIL_SIZE_256_ID: 256,
 }
+THUMBNAIL_SIZE_VALUES = list(THUMBNAIL_SIZE_OPTIONS.values())
 SORT_BY_NAME_ID = 1201
 SORT_BY_MTIME_ID = 1202
 SORT_ASCENDING_ID = 1211
@@ -468,6 +488,13 @@ class BROWSEINFOW(ctypes.Structure):
     ]
 
 
+class INITCOMMONCONTROLSEX(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD),
+        ("dwICC", wintypes.DWORD),
+    ]
+
+
 _window_proc_ref: WNDPROC | None = None
 _window_instances: dict[int, MainWindow] = {}
 _class_registered = False
@@ -475,6 +502,11 @@ _class_registered = False
 
 def run_app() -> None:
     MainWindow().run()
+
+
+def _init_trackbar_controls() -> None:
+    init = INITCOMMONCONTROLSEX(ctypes.sizeof(INITCOMMONCONTROLSEX), ICC_BAR_CLASSES)
+    comctl32.InitCommonControlsEx(ctypes.byref(init))
 
 
 class MainWindow:
@@ -497,6 +529,7 @@ class MainWindow:
         self.favorite_label: int | None = None
         self.favorite_combo: int | None = None
         self.thumbnail_label: int | None = None
+        self.thumbnail_size_slider: int | None = None
         self.thumbnail_size_buttons: dict[int, int] = {}
         self.sort_label: int | None = None
         self.sort_buttons: dict[int, int] = {}
@@ -535,7 +568,7 @@ class MainWindow:
         self.open_selected_folder_button: int | None = None
         self.folder_tree = FolderTree()
         self.thumbnail_grid = ThumbnailGrid()
-        self.thumbnail_size = THUMBNAIL_SIZE
+        self.thumbnail_size = load_thumbnail_size()
         self.sort_field = "name"
         self.sort_descending = False
         self.display_mode = PREVIEW_MODE_ORIGINAL
@@ -737,6 +770,11 @@ class MainWindow:
         if message == WM_MOUSEWHEEL:
             self._handle_mouse_wheel(w_param)
             return 0
+
+        if message == WM_HSCROLL:
+            if int(l_param) == (self.thumbnail_size_slider or 0):
+                self._handle_thumbnail_size_slider_changed()
+                return 0
 
         if message == WM_KEYDOWN:
             if self._handle_copy_shortcut(int(w_param)):
@@ -952,6 +990,15 @@ class MainWindow:
             FAVORITE_FOLDER_COMBO_ID,
         )
         self.thumbnail_label = self._create_child("STATIC", "サムネイル:", WS_CHILD | WS_VISIBLE, 0)
+        _init_trackbar_controls()
+        self.thumbnail_size_slider = self._create_child(
+            TRACKBAR_CLASS,
+            "",
+            WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS,
+            THUMBNAIL_SIZE_SLIDER_ID,
+        )
+        user32.SendMessageW(self.thumbnail_size_slider, TBM_SETRANGE, True, (len(THUMBNAIL_SIZE_VALUES) - 1) << 16)
+        user32.SendMessageW(self.thumbnail_size_slider, TBM_SETTICFREQ, 1, 0)
         for control_id, thumbnail_size in THUMBNAIL_SIZE_OPTIONS.items():
             style = WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON
             if control_id == THUMBNAIL_SIZE_64_ID:
@@ -1957,6 +2004,7 @@ class MainWindow:
             self.favorite_label,
             self.favorite_combo,
             self.thumbnail_label,
+            self.thumbnail_size_slider,
             self.operation_guide_button,
             self.resize_label,
             self.resize_basis_label,
@@ -1999,9 +2047,10 @@ class MainWindow:
         cleanup_button_width = 112 if compact else 124
         favorite_button_width = 94 if compact else 108
         favorite_move_button_width = 46 if compact else 56
-        size_button_width = 50 if compact else 58
+        size_button_width = 44 if compact else 50
         size_button_gap = 5 if compact else 6
         thumbnail_label_width = 72
+        thumbnail_slider_width = 88 if compact else 110
         sort_label_width = 64
         sort_button_width = 72 if compact else 82
         order_label_width = 44
@@ -2203,6 +2252,8 @@ class MainWindow:
         size_x = inner_x
         user32.MoveWindow(self.thumbnail_label, size_x, view_row1_y + 3, thumbnail_label_width, 18, True)
         size_x += thumbnail_label_width
+        user32.MoveWindow(self.thumbnail_size_slider, size_x, view_row1_y - 2, thumbnail_slider_width, 28, True)
+        size_x += thumbnail_slider_width + size_button_gap
         for control_id in THUMBNAIL_SIZE_OPTIONS:
             user32.MoveWindow(
                 self.thumbnail_size_buttons[control_id],
@@ -2418,6 +2469,11 @@ class MainWindow:
             return
 
         self.thumbnail_size = thumbnail_size
+        try:
+            save_thumbnail_size(thumbnail_size)
+        except OSError:
+            traceback.print_exc(file=sys.stderr)
+            self._set_window_text(self.status_bar, "サムネイルサイズ設定を保存できませんでした")
         self._load_id += 1
         load_id = self._load_id
         image_files = list(self.thumbnail_grid.items)
@@ -2439,6 +2495,13 @@ class MainWindow:
         )
         self._start_thumbnail_worker(load_id, image_files, thumbnail_size)
 
+    def _handle_thumbnail_size_slider_changed(self) -> None:
+        if not self.thumbnail_size_slider:
+            return
+        slider_index = int(user32.SendMessageW(self.thumbnail_size_slider, TBM_GETPOS, 0, 0))
+        slider_index = max(0, min(len(THUMBNAIL_SIZE_VALUES) - 1, slider_index))
+        self._change_thumbnail_size(THUMBNAIL_SIZE_VALUES[slider_index])
+
     def _check_thumbnail_size_button(self, thumbnail_size: int) -> None:
         if not self.hwnd:
             return
@@ -2447,10 +2510,13 @@ class MainWindow:
             (control_id for control_id, size in THUMBNAIL_SIZE_OPTIONS.items() if size == thumbnail_size),
             THUMBNAIL_SIZE_128_ID,
         )
-        user32.CheckRadioButton(self.hwnd, THUMBNAIL_SIZE_64_ID, THUMBNAIL_SIZE_256_ID, selected_id)
+        user32.CheckRadioButton(self.hwnd, min(THUMBNAIL_SIZE_OPTIONS), max(THUMBNAIL_SIZE_OPTIONS), selected_id)
         selected_button = self.thumbnail_size_buttons.get(selected_id)
         if selected_button:
             user32.SendMessageW(selected_button, BM_SETCHECK, BST_CHECKED, 0)
+        if self.thumbnail_size_slider:
+            slider_index = THUMBNAIL_SIZE_VALUES.index(thumbnail_size) if thumbnail_size in THUMBNAIL_SIZE_VALUES else 2
+            user32.SendMessageW(self.thumbnail_size_slider, TBM_SETPOS, True, slider_index)
 
     def _check_sort_buttons(self) -> None:
         if not self.hwnd:
