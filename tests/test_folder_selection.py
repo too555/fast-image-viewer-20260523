@@ -728,6 +728,16 @@ class FolderSelectionTest(unittest.TestCase):
 
         self.assertEqual(window._effective_preview_width(980), 786)
 
+    def test_splitter_hit_area_has_drag_padding(self) -> None:
+        window = main_window.MainWindow()
+        window._tree_splitter_rect = (100, 20, main_window.TREE_SPLITTER_WIDTH, 200)
+        window._splitter_rect = (300, 20, main_window.PREVIEW_SPLITTER_WIDTH, 200)
+
+        self.assertTrue(window._point_in_tree_splitter(99, 50))
+        self.assertTrue(window._point_in_splitter(299, 50))
+        self.assertFalse(window._point_in_tree_splitter(95, 50))
+        self.assertFalse(window._point_in_splitter(295, 50))
+
     def test_long_folder_path_is_compacted_for_display(self) -> None:
         window = main_window.MainWindow()
         long_folder = Path("C:/images") / ("very-long-folder-name-" * 8) / "leaf-folder"

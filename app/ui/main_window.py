@@ -353,6 +353,9 @@ THUMBNAIL_SIZE_OPTIONS = {
     THUMBNAIL_SIZE_256_ID: 256,
 }
 THUMBNAIL_SIZE_VALUES = list(THUMBNAIL_SIZE_OPTIONS.values())
+TREE_SPLITTER_WIDTH = 8
+PREVIEW_SPLITTER_WIDTH = 9
+SPLITTER_HIT_PADDING = 2
 SORT_BY_NAME_ID = 1201
 SORT_BY_MTIME_ID = 1202
 SORT_BY_SIZE_ID = 1203
@@ -1451,13 +1454,13 @@ class MainWindow:
         if self._splitter_rect is None:
             return False
         rect_x, rect_y, rect_width, rect_height = self._splitter_rect
-        return rect_x <= x < rect_x + rect_width and rect_y <= y < rect_y + rect_height
+        return _point_in_padded_rect(x, y, rect_x, rect_y, rect_width, rect_height, SPLITTER_HIT_PADDING)
 
     def _point_in_tree_splitter(self, x: int, y: int) -> bool:
         if self._tree_splitter_rect is None:
             return False
         rect_x, rect_y, rect_width, rect_height = self._tree_splitter_rect
-        return rect_x <= x < rect_x + rect_width and rect_y <= y < rect_y + rect_height
+        return _point_in_padded_rect(x, y, rect_x, rect_y, rect_width, rect_height, SPLITTER_HIT_PADDING)
 
     def _set_splitter_cursor(self) -> None:
         user32.SetCursor(user32.LoadCursorW(None, ctypes.cast(ctypes.c_void_p(IDC_SIZEWE), wintypes.LPCWSTR)))
@@ -2285,8 +2288,8 @@ class MainWindow:
         status_height = 44 if show_status_area else 0
         content_top = margin + top_height + 4
         content_height = max(120, height - content_top - status_height - margin)
-        gap = 6
-        tree_gap = 5 if show_folder_tree_area else 0
+        gap = PREVIEW_SPLITTER_WIDTH if show_preview_area else 0
+        tree_gap = TREE_SPLITTER_WIDTH if show_folder_tree_area else 0
         path_bar_height = 22 if show_path_area else 0
         path_bar_gap = 2 if show_path_area else 0
         tree_width = self._effective_folder_tree_width(width) if show_folder_tree_area else 0
@@ -3514,6 +3517,21 @@ class MainWindow:
             self.image_preview.hwnd,
         ]):
             raise RuntimeError("Window controls have not been created.")
+
+
+def _point_in_padded_rect(
+    x: int,
+    y: int,
+    rect_x: int,
+    rect_y: int,
+    rect_width: int,
+    rect_height: int,
+    padding: int,
+) -> bool:
+    return (
+        rect_x - padding <= x < rect_x + rect_width + padding
+        and rect_y <= y < rect_y + rect_height
+    )
 
 
 def _natural_text_key(value: str) -> tuple[tuple[int, object], ...]:
