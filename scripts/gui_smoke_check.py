@@ -27,9 +27,20 @@ from app.ui.main_window import (  # noqa: E402
     COMPARE_OPEN_ID,
     COMPARE_SET_A_ID,
     COMPARE_SET_B_ID,
+    CONTEXT_COPY_FILE_NAME_ID,
+    CONTEXT_COPY_IMAGE_PATH_ID,
+    CONTEXT_OPEN_IMAGE_FOLDER_ID,
+    CONTEXT_OPEN_IMAGE_ID,
+    CONTEXT_REVEAL_IMAGE_ID,
+    CONTEXT_SHOW_PROPERTIES_ID,
     FAVORITE_FOLDER_ADD_ID,
     RESIZE_SAVE_ID,
     SELECT_FOLDER_ID,
+    SORT_ASCENDING_ID,
+    SORT_BY_MTIME_ID,
+    SORT_BY_NAME_ID,
+    SORT_BY_SIZE_ID,
+    SORT_DESCENDING_ID,
     MainWindow,
     SW_SHOW,
     WM_COMMAND,
@@ -88,6 +99,76 @@ def wait_for(condition: object, label: str, seconds: float = 5.0) -> None:
     raise AssertionError(f"Timed out waiting for {label}")
 
 
+def verify_sort_preferences(window: MainWindow) -> None:
+    assert window.hwnd is not None
+
+    sort_checks = [
+        (SORT_BY_NAME_ID, SORT_ASCENDING_ID, "name", False),
+        (SORT_BY_MTIME_ID, SORT_DESCENDING_ID, "mtime", True),
+        (SORT_BY_SIZE_ID, SORT_ASCENDING_ID, "size", False),
+        (SORT_BY_SIZE_ID, SORT_DESCENDING_ID, "size", True),
+    ]
+    for field_id, order_id, expected_field, expected_descending in sort_checks:
+        click(window.hwnd, field_id, wait=0.2)
+        click(window.hwnd, order_id, wait=0.2)
+        if window.sort_field != expected_field or window.sort_descending != expected_descending:
+            raise AssertionError("Sort setting did not update through the GUI")
+
+    reloaded = MainWindow()
+    if reloaded.sort_field != "size" or not reloaded.sort_descending:
+        raise AssertionError("Sort setting was not restored from settings.json")
+
+
+def verify_context_menu_commands(window: MainWindow) -> None:
+    image_file = window._selected_image_file
+    if image_file is None:
+        raise AssertionError("No image selected for context menu smoke")
+
+    calls: list[str] = []
+    original_open = window._handle_context_open_image
+    original_open_folder = window._handle_context_open_image_folder
+    original_reveal = window._handle_context_reveal_image_in_explorer
+    original_copy_path = window._handle_context_copy_image_path
+    original_copy_name = window._handle_context_copy_file_name
+    original_properties = window._handle_context_show_properties
+    try:
+        window._handle_context_open_image = lambda _image=None: calls.append("開く") or True  # type: ignore[method-assign]
+        window._handle_context_open_image_folder = lambda _image=None: calls.append("フォルダを開く") or True  # type: ignore[method-assign]
+        window._handle_context_reveal_image_in_explorer = lambda _image=None: calls.append("エクスプローラーで選択表示") or True  # type: ignore[method-assign]
+        window._handle_context_copy_image_path = lambda _image=None: calls.append("パスをコピー") or True  # type: ignore[method-assign]
+        window._handle_context_copy_file_name = lambda _image=None: calls.append("ファイル名をコピー") or True  # type: ignore[method-assign]
+        window._handle_context_show_properties = lambda _image=None: calls.append("プロパティ") or True  # type: ignore[method-assign]
+
+        for command_id in (
+            CONTEXT_OPEN_IMAGE_ID,
+            CONTEXT_OPEN_IMAGE_FOLDER_ID,
+            CONTEXT_COPY_IMAGE_PATH_ID,
+            CONTEXT_COPY_FILE_NAME_ID,
+            CONTEXT_REVEAL_IMAGE_ID,
+            CONTEXT_SHOW_PROPERTIES_ID,
+        ):
+            if not window._handle_safe_image_context_command(command_id, image_file):
+                raise AssertionError(f"Context menu command failed: {command_id}")
+    finally:
+        window._handle_context_open_image = original_open  # type: ignore[method-assign]
+        window._handle_context_open_image_folder = original_open_folder  # type: ignore[method-assign]
+        window._handle_context_reveal_image_in_explorer = original_reveal  # type: ignore[method-assign]
+        window._handle_context_copy_image_path = original_copy_path  # type: ignore[method-assign]
+        window._handle_context_copy_file_name = original_copy_name  # type: ignore[method-assign]
+        window._handle_context_show_properties = original_properties  # type: ignore[method-assign]
+
+    expected = [
+        "開く",
+        "フォルダを開く",
+        "パスをコピー",
+        "ファイル名をコピー",
+        "エクスプローラーで選択表示",
+        "プロパティ",
+    ]
+    if calls != expected:
+        raise AssertionError(f"Unexpected context menu commands: {calls}")
+
+
 def main() -> None:
     image_folder = IMAGE_ROOT / "images"
     original_images = make_smoke_images(image_folder)
@@ -116,6 +197,9 @@ def main() -> None:
         wait_for(lambda: cache_stats().thumbnails_files > 0, "thumbnail cache")
         wait_for(lambda: cache_stats().previews_files > 0, "preview cache")
 
+        verify_sort_preferences(window)
+        verify_context_menu_commands(window)
+
         window._open_fullscreen()
         wait_for(lambda: window.fullscreen_preview.visible, "fullscreen open")
         window._close_fullscreen()
@@ -139,10 +223,14 @@ def main() -> None:
         before_count = len(window.thumbnail_grid.items)
         window.thumbnail_grid.select_index(0)
         pump(0.3)
+        resize_source = window._selected_image_file
+        if resize_source is None:
+            raise AssertionError("No image selected for resize smoke")
         click(window.hwnd, RESIZE_SAVE_ID, wait=1.0)
         if len(window.thumbnail_grid.items) <= before_count:
             raise AssertionError("Resize save did not add the saved image to the list")
-        if not any(path.name.startswith("smoke_1_resized") for path in image_folder.glob("*.png")):
+        expected_resize_prefix = f"{resize_source.path.stem}_resized"
+        if not any(path.name.startswith(expected_resize_prefix) for path in image_folder.glob("*.png")):
             raise AssertionError("Resize output was not created")
 
         settings_path = settings_file_path()
@@ -167,7 +255,8 @@ def main() -> None:
 
     print(
         "GUI_SMOKE_OK app launch, folder selection, thumbnails, preview, fullscreen, "
-        "compare, resize save, cache management, favorites, recent folders"
+        "compare, resize save, cache management, favorites, recent folders, "
+        "sort restore, context menu commands"
     )
 
 
