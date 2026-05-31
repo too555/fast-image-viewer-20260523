@@ -41,3 +41,6 @@ release/
 *.exe
 *.zip
 *.sha256
+
+# Held build files
+hold_build_files_20260601/
