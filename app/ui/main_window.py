@@ -50,11 +50,13 @@ from app.core.recent_folders import (
     save_thumbnail_size,
 )
 from app.core.thumbnail_cache import ThumbnailResult, ensure_thumbnail
+from app.core.viewer_options import load_viewer_options, update_viewer_options
 from app.ui.compare_view import CompareView
 from app.ui.fullscreen_preview import FullscreenPreview
 from app.ui.folder_tree import FolderTree
 from app.ui.image_preview import ImagePreview
 from app.ui.operation_guide_dialog import OperationGuideDialog
+from app.ui.options_dialog import OptionsDialog
 from app.ui.thumbnail_grid import PREFETCH_EXTRA_ROWS, ThumbnailGrid
 from app.utils.image_types import SUPPORTED_IMAGE_EXTENSIONS
 from app.utils.long_path import display_path, filesystem_path, path_exists, path_is_dir
@@ -265,6 +267,7 @@ TRACKBAR_CLASS = "msctls_trackbar32"
 
 CW_USEDEFAULT = -2147483648
 SW_SHOW = 5
+SW_HIDE = 0
 DEFAULT_GUI_FONT = 17
 IDC_ARROW = 32512
 IDC_SIZEWE = 32644
@@ -309,6 +312,7 @@ OPEN_SELECTED_FOLDER_ID = 1011
 CONTEXT_COPY_IMAGE_PATH_ID = 1012
 CONTEXT_COPY_FOLDER_PATH_ID = 1013
 OPERATION_GUIDE_ID = 1014
+OPTIONS_DIALOG_ID = 1035
 RESIZE_SIZE_800_ID = 1015
 RESIZE_SIZE_1200_ID = 1016
 RESIZE_SIZE_1920_ID = 1017
@@ -554,6 +558,7 @@ class MainWindow:
         self.compare_b_button: int | None = None
         self.compare_open_button: int | None = None
         self.operation_guide_button: int | None = None
+        self.options_button: int | None = None
         self.folder_label: int | None = None
         self.current_path_label: int | None = None
         self.current_path_open_button: int | None = None
@@ -569,6 +574,7 @@ class MainWindow:
         self.folder_tree = FolderTree()
         self.thumbnail_grid = ThumbnailGrid()
         self.thumbnail_size = load_thumbnail_size()
+        self.viewer_options = load_viewer_options()
         self.sort_field = "name"
         self.sort_descending = False
         self.display_mode = PREVIEW_MODE_ORIGINAL
@@ -581,6 +587,7 @@ class MainWindow:
         self.fullscreen_preview = FullscreenPreview()
         self.compare_view = CompareView()
         self.operation_guide_dialog = OperationGuideDialog()
+        self.options_dialog = OptionsDialog()
         self.current_folder: Path | None = None
         self.recent_folders = load_recent_folders()
         self.favorite_folders = load_favorite_folders()
@@ -658,6 +665,7 @@ class MainWindow:
         self.fullscreen_preview.destroy()
         self.compare_view.destroy()
         self.operation_guide_dialog.destroy()
+        self.options_dialog.destroy()
         if self.hwnd:
             shell32.DragAcceptFiles(self.hwnd, False)
             user32.DestroyWindow(self.hwnd)
@@ -897,6 +905,9 @@ class MainWindow:
             if control_id == OPERATION_GUIDE_ID and notification == BN_CLICKED:
                 self._show_operation_guide()
                 return 0
+            if control_id == OPTIONS_DIALOG_ID and notification == BN_CLICKED:
+                self._show_options_dialog()
+                return 0
 
         if message == WM_DESTROY:
             self._load_id += 1
@@ -908,6 +919,7 @@ class MainWindow:
             self.fullscreen_preview.destroy()
             self.compare_view.destroy()
             self.operation_guide_dialog.destroy()
+            self.options_dialog.destroy()
             shell32.DragAcceptFiles(hwnd, False)
             _window_instances.pop(int(hwnd), None)
             user32.PostQuitMessage(0)
@@ -929,19 +941,19 @@ class MainWindow:
         )
         self.parent_folder_button = self._create_child(
             "BUTTON",
-            "親フォルダへ",
+            "↑",
             WS_CHILD | WS_VISIBLE,
             PARENT_FOLDER_ID,
         )
         self.previous_folder_button = self._create_child(
             "BUTTON",
-            "前のフォルダ",
+            "←",
             WS_CHILD | WS_VISIBLE,
             PREVIOUS_FOLDER_ID,
         )
         self.next_folder_button = self._create_child(
             "BUTTON",
-            "次のフォルダ",
+            "→",
             WS_CHILD | WS_VISIBLE,
             NEXT_FOLDER_ID,
         )
@@ -1110,6 +1122,12 @@ class MainWindow:
             OPERATION_GUIDE_TITLE,
             WS_CHILD | WS_VISIBLE,
             OPERATION_GUIDE_ID,
+        )
+        self.options_button = self._create_child(
+            "BUTTON",
+            "設定",
+            WS_CHILD | WS_VISIBLE,
+            OPTIONS_DIALOG_ID,
         )
         self._check_sort_buttons()
         self._check_display_mode_buttons()
@@ -1731,6 +1749,41 @@ class MainWindow:
     def _show_operation_guide(self) -> None:
         self.operation_guide_dialog.show(self.hwnd, OPERATION_GUIDE_TITLE, OPERATION_GUIDE_TEXT)
 
+    def _show_options_dialog(self) -> None:
+        self.options_dialog.show(
+            self.hwnd,
+            self.thumbnail_size,
+            self.viewer_options,
+            self._change_thumbnail_size,
+            self._apply_viewer_options,
+        )
+
+    def _apply_viewer_options(self, viewer_options: dict[str, dict[str, object]]) -> None:
+        self.viewer_options = viewer_options
+        self._layout()
+        if self._selected_image_file is not None and self._show_preview_area():
+            self._start_preview_worker(self._selected_image_file, show_loading=False)
+        elif not self._show_preview_area():
+            self.image_preview.clear()
+        self._refresh_status_details()
+
+    def _option_bool(self, category: str, key: str, default: bool = True) -> bool:
+        category_options = self.viewer_options.get(category, {})
+        raw_value = category_options.get(key, default) if isinstance(category_options, dict) else default
+        return raw_value if isinstance(raw_value, bool) else default
+
+    def _show_status_area(self) -> bool:
+        return self._option_bool("display", "show_status_bar", True)
+
+    def _show_path_area(self) -> bool:
+        return self._option_bool("display", "show_path_bar", True)
+
+    def _show_folder_tree_area(self) -> bool:
+        return self._option_bool("display", "show_folder_tree", True)
+
+    def _show_preview_area(self) -> bool:
+        return self._option_bool("browser", "show_preview", True)
+
     def _handle_set_compare_a(self) -> bool:
         return self._set_compare_image("A")
 
@@ -2006,6 +2059,7 @@ class MainWindow:
             self.thumbnail_label,
             self.thumbnail_size_slider,
             self.operation_guide_button,
+            self.options_button,
             self.resize_label,
             self.resize_basis_label,
             self.resize_save_button,
@@ -2042,8 +2096,10 @@ class MainWindow:
         group_margin = 2
         group_inner_margin = 6
         compact = width < 760
-        button_width = 98 if compact else 108
-        folder_nav_button_width = 66 if compact else 76
+        toolbar_button_height = 24
+        button_width = 104 if compact else 112
+        folder_nav_button_width = 28
+        folder_nav_gap = 4
         cleanup_button_width = 104 if compact else 116
         favorite_button_width = 94 if compact else 108
         favorite_move_button_width = 46 if compact else 56
@@ -2057,6 +2113,7 @@ class MainWindow:
         order_button_width = 52 if compact else 58
         display_label_width = 44
         guide_button_width = 92 if compact else 104
+        options_button_width = 58 if compact else 64
         resize_label_width = 70
         resize_size_button_width = 72 if compact else 78
         resize_basis_label_width = 44
@@ -2080,33 +2137,37 @@ class MainWindow:
         copy_image_button_width = 100 if compact else 116
         open_folder_button_width = 104 if compact else 118
         group_width = max(120, width - margin * 2)
-        control_height = 22
+        control_height = 24
         row_gap = 2
+        show_status_area = self._show_status_area()
+        show_path_area = self._show_path_area()
+        show_folder_tree_area = self._show_folder_tree_area()
+        show_preview_area = self._show_preview_area()
         top_height = control_height * 6 + row_gap * 5
-        status_height = 44
+        status_height = 44 if show_status_area else 0
         content_top = margin + top_height + 4
         content_height = max(120, height - content_top - status_height - margin)
         gap = 6
-        tree_gap = 5
-        path_bar_height = 22
-        path_bar_gap = 2
-        tree_width = self._effective_folder_tree_width(width)
+        tree_gap = 5 if show_folder_tree_area else 0
+        path_bar_height = 22 if show_path_area else 0
+        path_bar_gap = 2 if show_path_area else 0
+        tree_width = self._effective_folder_tree_width(width) if show_folder_tree_area else 0
         image_area_x = margin + tree_width + tree_gap
         image_area_width = max(160, width - image_area_x - margin)
         image_content_top = content_top + path_bar_height + path_bar_gap
         image_content_height = max(80, content_height - path_bar_height - path_bar_gap)
-        preview_width = self._effective_preview_width(width)
-        preview_width = min(preview_width, max(120, image_area_width - gap - 160))
+        preview_width = self._effective_preview_width(width) if show_preview_area else 0
+        preview_width = min(preview_width, max(120, image_area_width - gap - 160)) if show_preview_area else 0
         grid_width = max(160, image_area_width - preview_width - gap)
-        self._tree_splitter_rect = (margin + tree_width, content_top, tree_gap, content_height)
-        if image_area_width < 540:
+        self._tree_splitter_rect = (margin + tree_width, content_top, tree_gap, content_height) if show_folder_tree_area else None
+        if image_area_width < 540 or not show_preview_area:
             self._splitter_rect = None
-            preview_height = max(160, int(image_content_height * 0.46))
-            grid_height = max(120, image_content_height - preview_height - gap)
             grid_width = max(120, image_area_width)
+            grid_height = image_content_height if not show_preview_area else max(120, int(image_content_height * 0.52))
+            preview_height = max(120, image_content_height - grid_height - gap) if show_preview_area else 0
             preview_x = image_area_x
             preview_y = image_content_top + grid_height + gap
-            preview_width = max(120, image_area_width)
+            preview_width = max(120, image_area_width) if show_preview_area else 0
         else:
             grid_height = image_content_height
             preview_x = image_area_x + grid_width + gap
@@ -2137,42 +2198,42 @@ class MainWindow:
         inner_x = margin + group_inner_margin
         inner_right = width - margin - group_inner_margin
         folder_button_x = inner_x
-        user32.MoveWindow(self.open_button, folder_button_x, folder_row1_y, button_width, 22, True)
-        folder_button_x += button_width + 6
+        user32.MoveWindow(self.open_button, folder_button_x, folder_row1_y, button_width, toolbar_button_height, True)
+        folder_button_x += button_width + folder_nav_gap
         user32.MoveWindow(
             self.parent_folder_button,
             folder_button_x,
             folder_row1_y,
             folder_nav_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
-        folder_button_x += folder_nav_button_width + 6
+        folder_button_x += folder_nav_button_width + folder_nav_gap
         user32.MoveWindow(
             self.previous_folder_button,
             folder_button_x,
             folder_row1_y,
             folder_nav_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
-        folder_button_x += folder_nav_button_width + 6
+        folder_button_x += folder_nav_button_width + folder_nav_gap
         user32.MoveWindow(
             self.next_folder_button,
             folder_button_x,
             folder_row1_y,
             folder_nav_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
-        folder_button_x += folder_nav_button_width + 10
+        folder_button_x += folder_nav_button_width + 8
         cleanup_button_x = max(folder_button_x, inner_right - cleanup_button_width)
         user32.MoveWindow(
             self.cleanup_invalid_button,
             cleanup_button_x,
             folder_row1_y,
             cleanup_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
         recent_label_width = 96
@@ -2214,7 +2275,7 @@ class MainWindow:
             favorite_button_x,
             favorite_control_y,
             favorite_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
         user32.MoveWindow(
@@ -2222,7 +2283,7 @@ class MainWindow:
             favorite_remove_button_x,
             favorite_control_y,
             favorite_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
         user32.MoveWindow(
@@ -2230,7 +2291,7 @@ class MainWindow:
             favorite_move_up_button_x,
             favorite_control_y,
             favorite_move_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
         user32.MoveWindow(
@@ -2238,7 +2299,7 @@ class MainWindow:
             favorite_move_down_button_x,
             favorite_control_y,
             favorite_move_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
 
@@ -2253,7 +2314,7 @@ class MainWindow:
                 size_x,
                 view_row1_y,
                 size_button_width,
-                22,
+                toolbar_button_height,
                 True,
             )
             size_x += size_button_width + size_button_gap
@@ -2261,13 +2322,13 @@ class MainWindow:
         user32.MoveWindow(self.sort_label, sort_x, view_row1_y + 3, sort_label_width, 18, True)
         sort_x += sort_label_width
         for control_id in SORT_FIELD_OPTIONS:
-            user32.MoveWindow(self.sort_buttons[control_id], sort_x, view_row1_y, sort_button_width, 22, True)
+            user32.MoveWindow(self.sort_buttons[control_id], sort_x, view_row1_y, sort_button_width, toolbar_button_height, True)
             sort_x += sort_button_width + size_button_gap
         sort_x += 8
         user32.MoveWindow(self.order_label, sort_x, view_row1_y + 3, order_label_width, 18, True)
         sort_x += order_label_width
         for control_id in SORT_ORDER_OPTIONS:
-            user32.MoveWindow(self.order_buttons[control_id], sort_x, view_row1_y, order_button_width, 22, True)
+            user32.MoveWindow(self.order_buttons[control_id], sort_x, view_row1_y, order_button_width, toolbar_button_height, True)
             sort_x += order_button_width + size_button_gap
 
         display_x = inner_x
@@ -2280,7 +2341,7 @@ class MainWindow:
                 display_x,
                 view_row2_y,
                 button_width_for_mode,
-                22,
+                toolbar_button_height,
                 True,
             )
             display_x += button_width_for_mode + size_button_gap
@@ -2290,7 +2351,16 @@ class MainWindow:
             guide_button_x,
             view_row2_y,
             guide_button_width,
-            22,
+            toolbar_button_height,
+            True,
+        )
+        options_button_x = guide_button_x + guide_button_width + size_button_gap
+        user32.MoveWindow(
+            self.options_button,
+            options_button_x,
+            view_row2_y,
+            options_button_width,
+            toolbar_button_height,
             True,
         )
         resize_x = inner_x
@@ -2302,7 +2372,7 @@ class MainWindow:
                 resize_x,
                 view_row3_y,
                 resize_size_button_width,
-                22,
+                toolbar_button_height,
                 True,
             )
             resize_x += resize_size_button_width + size_button_gap
@@ -2315,7 +2385,7 @@ class MainWindow:
                 resize_x,
                 view_row3_y,
                 resize_basis_button_width,
-                22,
+                toolbar_button_height,
                 True,
             )
             resize_x += resize_basis_button_width + size_button_gap
@@ -2324,7 +2394,7 @@ class MainWindow:
             resize_x + 8,
             view_row3_y,
             resize_save_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
         resize_x += resize_save_button_width + 16
@@ -2333,7 +2403,7 @@ class MainWindow:
             resize_x,
             view_row3_y,
             resize_output_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
         resize_x += resize_output_button_width + 8
@@ -2346,17 +2416,17 @@ class MainWindow:
             True,
         )
         compare_total_width = compare_button_width * 2 + compare_open_button_width + size_button_gap * 2
-        compare_x = max(guide_button_x + guide_button_width + 12, inner_right - compare_total_width)
-        user32.MoveWindow(self.compare_a_button, compare_x, view_row4_y, compare_button_width, 22, True)
+        compare_x = max(options_button_x + options_button_width + 12, inner_right - compare_total_width)
+        user32.MoveWindow(self.compare_a_button, compare_x, view_row4_y, compare_button_width, toolbar_button_height, True)
         compare_x += compare_button_width + size_button_gap
-        user32.MoveWindow(self.compare_b_button, compare_x, view_row4_y, compare_button_width, 22, True)
+        user32.MoveWindow(self.compare_b_button, compare_x, view_row4_y, compare_button_width, toolbar_button_height, True)
         compare_x += compare_button_width + size_button_gap
         user32.MoveWindow(
             self.compare_open_button,
             compare_x,
             view_row4_y,
             compare_open_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
         cache_x = inner_x
@@ -2370,7 +2440,7 @@ class MainWindow:
                 cache_x,
                 cache_control_y,
                 cache_limit_button_width,
-                22,
+                toolbar_button_height,
                 True,
             )
             cache_x += cache_limit_button_width + size_button_gap
@@ -2380,7 +2450,7 @@ class MainWindow:
             cache_x,
             cache_control_y,
             cache_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
         cache_x += cache_button_width + size_button_gap
@@ -2389,23 +2459,31 @@ class MainWindow:
             cache_x,
             cache_control_y,
             cache_clear_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
         current_path_button_width = 138 if compact else 160
         current_path_label_width = max(80, image_area_width - current_path_button_width - size_button_gap)
+        for child in (self.current_path_label, self.current_path_open_button):
+            user32.ShowWindow(child, SW_SHOW if show_path_area else SW_HIDE)
         user32.MoveWindow(self.current_path_label, image_area_x, content_top + 3, current_path_label_width, 18, True)
         user32.MoveWindow(
             self.current_path_open_button,
             image_area_x + current_path_label_width + size_button_gap,
             content_top,
             current_path_button_width,
-            22,
+            toolbar_button_height,
             True,
         )
-        self.folder_tree.move(margin, content_top, tree_width, content_height)
+        if self.folder_tree.hwnd:
+            user32.ShowWindow(self.folder_tree.hwnd, SW_SHOW if show_folder_tree_area else SW_HIDE)
+        if show_folder_tree_area:
+            self.folder_tree.move(margin, content_top, tree_width, content_height)
         self.thumbnail_grid.move(image_area_x, image_content_top, grid_width, grid_height)
-        self.image_preview.move(preview_x, preview_y, preview_width, preview_height)
+        if self.image_preview.hwnd:
+            user32.ShowWindow(self.image_preview.hwnd, SW_SHOW if show_preview_area else SW_HIDE)
+        if show_preview_area:
+            self.image_preview.move(preview_x, preview_y, preview_width, preview_height)
         status_info_y = max(content_top + content_height + 4, height - status_height)
         status_message_y = status_info_y + 24
         status_right = width - margin
@@ -2421,6 +2499,20 @@ class MainWindow:
         user32.MoveWindow(self.status_file_size_label, status_x, status_info_y + 3, 112, 18, True)
         status_x += 112 + size_button_gap
         user32.MoveWindow(self.status_loading_label, status_x, status_info_y + 3, max(80, status_right - status_x), 18, True)
+        for child in (
+            self.status_count_label,
+            self.status_name_label,
+            self.status_dimensions_label,
+            self.status_file_size_label,
+            self.status_loading_label,
+            self.status_bar,
+            self.copy_folder_path_button,
+            self.copy_image_path_button,
+            self.open_selected_folder_button,
+        ):
+            user32.ShowWindow(child, SW_SHOW if show_status_area else SW_HIDE)
+        if not show_status_area:
+            return
         open_folder_x = width - margin - open_folder_button_width
         copy_image_x = open_folder_x - size_button_gap - copy_image_button_width
         copy_folder_x = copy_image_x - size_button_gap - copy_folder_button_width
@@ -2465,6 +2557,7 @@ class MainWindow:
         self.thumbnail_size = thumbnail_size
         try:
             save_thumbnail_size(thumbnail_size)
+            self.viewer_options = update_viewer_options("thumbnail", {"thumbnail_size": thumbnail_size})
         except OSError:
             traceback.print_exc(file=sys.stderr)
             self._set_window_text(self.status_bar, "サムネイルサイズ設定を保存できませんでした")
@@ -2975,7 +3068,11 @@ class MainWindow:
     def _select_image(self, index: int, image_file: ImageFile) -> None:
         self._selected_image_file = image_file
         self._sync_pan_mode()
-        self._start_preview_worker(image_file)
+        if self._show_preview_area():
+            self._start_preview_worker(image_file)
+        else:
+            self._cancel_preview_requests()
+            self.image_preview.clear()
         if self.fullscreen_preview.visible:
             self._start_fullscreen_worker(image_file)
         self._refresh_status_details("プレビュー読み込み中")
@@ -3016,6 +3113,9 @@ class MainWindow:
             self.thumbnail_grid.select_relative(1)
 
     def _start_preview_worker(self, image_file: ImageFile, show_loading: bool = True) -> None:
+        if not self._show_preview_area():
+            self._cancel_preview_requests()
+            return
         max_width, max_height = self.image_preview.preview_size()
         display_mode = self.display_mode
         self.image_preview.set_pan_enabled(_pan_enabled_for_display_mode(display_mode))
