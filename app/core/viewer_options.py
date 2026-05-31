@@ -14,6 +14,7 @@ from app.utils.long_path import make_dirs
 
 
 VIEWER_OPTIONS_KEY = "viewer_options"
+SORT_FIELD_VALUES = {"name", "mtime", "size"}
 
 OPTION_TABS: tuple[tuple[str, str], ...] = (
     ("browser", "ブラウザ"),
@@ -109,6 +110,8 @@ DEFAULT_VIEWER_OPTIONS: dict[str, dict[str, object]] = {
         "show_grid_lines": False,
         "full_row_select": True,
         "auto_select_new_file": True,
+        "sort_field": "name",
+        "sort_descending": False,
     },
     "thumbnail": {
         "thumbnail_size": DEFAULT_THUMBNAIL_SIZE,
@@ -216,6 +219,8 @@ def _normalize_options(raw_options: object) -> dict[str, dict[str, object]]:
             normalized = _normalize_value(default_value, raw_value)
             if key == "thumbnail_size" and normalized not in THUMBNAIL_SIZE_OPTIONS:
                 normalized = DEFAULT_THUMBNAIL_SIZE
+            if key == "sort_field" and normalized not in SORT_FIELD_VALUES:
+                normalized = "name"
             options[category][key] = normalized
     return options
 

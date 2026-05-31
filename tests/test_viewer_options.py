@@ -38,12 +38,20 @@ class ViewerOptionsTest(unittest.TestCase):
             settings_path = Path(temp_dir) / "settings.json"
             settings_path.write_text(json.dumps({"recent_folders": ["C:/Images"]}), encoding="utf-8")
 
-            save_viewer_options({"thumbnail": {"thumbnail_size": 160}}, settings_path=settings_path)
+            save_viewer_options(
+                {
+                    "thumbnail": {"thumbnail_size": 160},
+                    "file_list": {"sort_field": "size", "sort_descending": True},
+                },
+                settings_path=settings_path,
+            )
 
             data = json.loads(settings_path.read_text(encoding="utf-8"))
             options = load_viewer_options(settings_path=settings_path)
             self.assertEqual(data["recent_folders"], ["C:/Images"])
             self.assertEqual(options["thumbnail"]["thumbnail_size"], 160)
+            self.assertEqual(options["file_list"]["sort_field"], "size")
+            self.assertTrue(options["file_list"]["sort_descending"])
             self.assertTrue(options["browser"]["show_folder_tree"])
 
     def test_update_viewer_options_normalizes_invalid_values(self) -> None:
@@ -54,6 +62,7 @@ class ViewerOptionsTest(unittest.TestCase):
                     {
                         "viewer_options": {
                             "browser": {"show_toolbar": "yes"},
+                            "file_list": {"sort_field": "unknown"},
                             "thumbnail": {"thumbnail_size": 999},
                             "slideshow": {"interval_ms": -1},
                         }
@@ -65,6 +74,7 @@ class ViewerOptionsTest(unittest.TestCase):
             options = update_viewer_options("thumbnail", {"thumbnail_size": 256}, settings_path=settings_path)
 
             self.assertTrue(options["browser"]["show_toolbar"])
+            self.assertEqual(options["file_list"]["sort_field"], "name")
             self.assertEqual(options["thumbnail"]["thumbnail_size"], 256)
             self.assertEqual(options["slideshow"]["interval_ms"], 3000)
 

@@ -583,8 +583,11 @@ class MainWindow:
         self.thumbnail_grid = ThumbnailGrid()
         self.thumbnail_size = load_thumbnail_size()
         self.viewer_options = load_viewer_options()
-        self.sort_field = "name"
-        self.sort_descending = False
+        file_list_options = self.viewer_options.get("file_list", {})
+        self.sort_field = str(file_list_options.get("sort_field", "name"))
+        if self.sort_field not in {field for field, _label in SORT_FIELD_OPTIONS.values()}:
+            self.sort_field = "name"
+        self.sort_descending = bool(file_list_options.get("sort_descending", False))
         self.display_mode = PREVIEW_MODE_ORIGINAL
         self.resize_size = CORE_RESIZE_SIZE_OPTIONS[0]
         self.resize_basis = RESIZE_BASIS_WIDTH
@@ -3020,6 +3023,7 @@ class MainWindow:
         if sort_field == self.sort_field:
             return
         self.sort_field = sort_field
+        self._save_sort_preferences()
         self._check_sort_buttons()
         self._apply_sort_to_current_items()
 
@@ -3027,8 +3031,18 @@ class MainWindow:
         if sort_descending == self.sort_descending:
             return
         self.sort_descending = sort_descending
+        self._save_sort_preferences()
         self._check_sort_buttons()
         self._apply_sort_to_current_items()
+
+    def _save_sort_preferences(self) -> None:
+        self.viewer_options = update_viewer_options(
+            "file_list",
+            {
+                "sort_field": self.sort_field,
+                "sort_descending": self.sort_descending,
+            },
+        )
 
     def _apply_sort_to_current_items(self) -> None:
         image_files = self._sorted_image_files(list(self.thumbnail_grid.items))
