@@ -538,6 +538,51 @@ class FolderSelectionTest(unittest.TestCase):
 
         self.assertEqual(messages, [f"保存先フォルダが見つかりません: {selected.path.parent}"])
 
+    def test_context_reveal_image_uses_explorer_select(self) -> None:
+        original_shell32 = main_window.shell32
+        selected = _image_file(Path("C:/images/photo.jpg"), 1)
+        calls: list[tuple[int | None, str, str, object, object, int]] = []
+        messages: list[str] = []
+
+        class FakeShell32:
+            def ShellExecuteW(
+                self,
+                hwnd: int | None,
+                operation: str,
+                file_path: str,
+                parameters: object,
+                directory: object,
+                show_command: int,
+            ) -> int:
+                calls.append((hwnd, operation, file_path, parameters, directory, show_command))
+                return 33
+
+        try:
+            main_window.shell32 = FakeShell32()  # type: ignore[assignment]
+            window = main_window.MainWindow()
+            window.hwnd = 55
+            window.status_bar = 102
+            window._set_window_text = lambda _hwnd, text: messages.append(text)  # type: ignore[method-assign]
+
+            self.assertTrue(window._handle_context_reveal_image_in_explorer(selected))
+        finally:
+            main_window.shell32 = original_shell32  # type: ignore[assignment]
+
+        self.assertEqual(
+            calls,
+            [(55, "open", "explorer.exe", f'/select,"{selected.path}"', None, main_window.SW_SHOW)],
+        )
+        self.assertEqual(messages, [f"エクスプローラーで選択表示しました: {selected.name}"])
+
+    def test_context_reveal_image_without_selection_does_not_crash(self) -> None:
+        window = main_window.MainWindow()
+        messages: list[str] = []
+        window.status_bar = 102
+        window._set_window_text = lambda _hwnd, text: messages.append(text)  # type: ignore[method-assign]
+
+        self.assertFalse(window._handle_context_reveal_image_in_explorer(None))
+        self.assertEqual(messages, ["選択表示する画像が選択されていません"])
+
     def test_handle_select_folder_loads_selected_folder(self) -> None:
         window = main_window.MainWindow()
         selected = Path("C:/selected-images")

@@ -317,6 +317,7 @@ CONTEXT_OPEN_IMAGE_ID = 1036
 CONTEXT_OPEN_IMAGE_FOLDER_ID = 1037
 CONTEXT_COPY_FILE_NAME_ID = 1038
 CONTEXT_SHOW_PROPERTIES_ID = 1039
+CONTEXT_REVEAL_IMAGE_ID = 1040
 OPERATION_GUIDE_ID = 1014
 OPTIONS_DIALOG_ID = 1035
 RESIZE_SIZE_800_ID = 1015
@@ -1884,6 +1885,7 @@ class MainWindow:
         if command in {
             CONTEXT_OPEN_IMAGE_ID,
             CONTEXT_OPEN_IMAGE_FOLDER_ID,
+            CONTEXT_REVEAL_IMAGE_ID,
             CONTEXT_COPY_FILE_NAME_ID,
             CONTEXT_SHOW_PROPERTIES_ID,
         }:
@@ -1915,6 +1917,7 @@ class MainWindow:
         try:
             user32.AppendMenuW(menu, enabled_flag, CONTEXT_OPEN_IMAGE_ID, "開く")
             user32.AppendMenuW(menu, enabled_flag, CONTEXT_OPEN_IMAGE_FOLDER_ID, "フォルダを開く")
+            user32.AppendMenuW(menu, enabled_flag, CONTEXT_REVEAL_IMAGE_ID, "エクスプローラーで選択表示")
             user32.AppendMenuW(menu, MF_SEPARATOR, 0, "")
             user32.AppendMenuW(menu, enabled_flag, CONTEXT_COPY_IMAGE_PATH_ID, "パスをコピー")
             user32.AppendMenuW(menu, enabled_flag, CONTEXT_COPY_FILE_NAME_ID, "ファイル名をコピー")
@@ -1940,6 +1943,8 @@ class MainWindow:
             return self._handle_context_open_image(image_file)
         if command == CONTEXT_OPEN_IMAGE_FOLDER_ID:
             return self._handle_context_open_image_folder(image_file)
+        if command == CONTEXT_REVEAL_IMAGE_ID:
+            return self._handle_context_reveal_image_in_explorer(image_file)
         if command == CONTEXT_COPY_IMAGE_PATH_ID:
             return self._handle_context_copy_image_path(image_file)
         if command == CONTEXT_COPY_FOLDER_PATH_ID:
@@ -1970,6 +1975,24 @@ class MainWindow:
             self._set_window_text(self.status_bar, "開くフォルダの画像が選択されていません")
             return False
         return self._open_folder_in_explorer(target.path.parent, "画像フォルダ")
+
+    def _handle_context_reveal_image_in_explorer(self, image_file: ImageFile | None = None) -> bool:
+        target = self._context_image_file(image_file)
+        if target is None:
+            self._set_window_text(self.status_bar, "選択表示する画像が選択されていません")
+            return False
+        image_path = display_path(target.path)
+        try:
+            result = shell32.ShellExecuteW(self.hwnd, "open", "explorer.exe", f'/select,"{image_path}"', None, SW_SHOW)
+        except OSError as error:
+            traceback.print_exc(file=sys.stderr)
+            self._set_window_text(self.status_bar, f"エクスプローラーで選択表示できませんでした: {error}")
+            return False
+        if _shell_execute_failed(result):
+            self._set_window_text(self.status_bar, f"エクスプローラーで選択表示できませんでした: {target.name}")
+            return False
+        self._set_window_text(self.status_bar, f"エクスプローラーで選択表示しました: {target.name}")
+        return True
 
     def _handle_context_copy_image_path(self, image_file: ImageFile | None = None) -> bool:
         target = self._context_image_file(image_file)
