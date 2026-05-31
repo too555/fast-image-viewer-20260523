@@ -7,12 +7,12 @@ from app.core.image_scanner import ImageFile
 from app.ui.main_window import MainWindow
 
 
-def _image_file(name: str, mtime: float) -> ImageFile:
+def _image_file(name: str, mtime: float, size: int = 100) -> ImageFile:
     return ImageFile(
         path=Path(f"C:/images/{name}"),
         name=name,
         suffix=Path(name).suffix.lower(),
-        size=100,
+        size=size,
         mtime=mtime,
     )
 
@@ -57,6 +57,27 @@ class SortingTest(unittest.TestCase):
         self.assertEqual(
             [item.name for item in window._sorted_image_files(items)],
             ["c.jpg", "b.jpg", "a.jpg"],
+        )
+
+    def test_sorts_by_file_size(self) -> None:
+        window = MainWindow()
+        items = [
+            _image_file("b.jpg", 20, size=300),
+            _image_file("a.jpg", 10, size=100),
+            _image_file("c.jpg", 30, size=200),
+        ]
+        window.sort_field = "size"
+
+        self.assertEqual(
+            [item.name for item in window._sorted_image_files(items)],
+            ["a.jpg", "c.jpg", "b.jpg"],
+        )
+
+        window.sort_descending = True
+
+        self.assertEqual(
+            [item.name for item in window._sorted_image_files(items)],
+            ["b.jpg", "c.jpg", "a.jpg"],
         )
 
     def test_apply_sort_preserves_selected_image(self) -> None:

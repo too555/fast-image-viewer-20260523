@@ -354,11 +354,13 @@ THUMBNAIL_SIZE_OPTIONS = {
 THUMBNAIL_SIZE_VALUES = list(THUMBNAIL_SIZE_OPTIONS.values())
 SORT_BY_NAME_ID = 1201
 SORT_BY_MTIME_ID = 1202
+SORT_BY_SIZE_ID = 1203
 SORT_ASCENDING_ID = 1211
 SORT_DESCENDING_ID = 1212
 SORT_FIELD_OPTIONS = {
     SORT_BY_NAME_ID: ("name", "ファイル名"),
     SORT_BY_MTIME_ID: ("mtime", "更新日"),
+    SORT_BY_SIZE_ID: ("size", "サイズ"),
 }
 SORT_ORDER_OPTIONS = {
     SORT_ASCENDING_ID: (False, "昇順"),
@@ -2724,7 +2726,7 @@ class MainWindow:
             SORT_BY_NAME_ID,
         )
         selected_order_id = SORT_DESCENDING_ID if self.sort_descending else SORT_ASCENDING_ID
-        user32.CheckRadioButton(self.hwnd, SORT_BY_NAME_ID, SORT_BY_MTIME_ID, selected_sort_id)
+        user32.CheckRadioButton(self.hwnd, SORT_BY_NAME_ID, SORT_BY_SIZE_ID, selected_sort_id)
         user32.CheckRadioButton(self.hwnd, SORT_ASCENDING_ID, SORT_DESCENDING_ID, selected_order_id)
         selected_sort_button = self.sort_buttons.get(selected_sort_id)
         if selected_sort_button:
@@ -3066,6 +3068,8 @@ class MainWindow:
         name_sorted = sorted(image_files, key=lambda image_file: _natural_text_key(image_file.name))
         if self.sort_field == "mtime":
             return sorted(name_sorted, key=lambda image_file: image_file.mtime, reverse=self.sort_descending)
+        if self.sort_field == "size":
+            return sorted(name_sorted, key=lambda image_file: image_file.size, reverse=self.sort_descending)
         if self.sort_descending:
             return list(reversed(name_sorted))
         return name_sorted
