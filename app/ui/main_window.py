@@ -240,6 +240,8 @@ CF_UNICODETEXT = 13
 GMEM_MOVEABLE = 0x0002
 GMEM_ZEROINIT = 0x0040
 MF_STRING = 0x0000
+MF_GRAYED = 0x0001
+MF_SEPARATOR = 0x0800
 TPM_RIGHTBUTTON = 0x0002
 TPM_RETURNCMD = 0x0100
 BIF_RETURNONLYFSDIRS = 0x0001
@@ -311,6 +313,10 @@ COPY_IMAGE_PATH_ID = 1010
 OPEN_SELECTED_FOLDER_ID = 1011
 CONTEXT_COPY_IMAGE_PATH_ID = 1012
 CONTEXT_COPY_FOLDER_PATH_ID = 1013
+CONTEXT_OPEN_IMAGE_ID = 1036
+CONTEXT_OPEN_IMAGE_FOLDER_ID = 1037
+CONTEXT_COPY_FILE_NAME_ID = 1038
+CONTEXT_SHOW_PROPERTIES_ID = 1039
 OPERATION_GUIDE_ID = 1014
 OPTIONS_DIALOG_ID = 1035
 RESIZE_SIZE_800_ID = 1015
@@ -1844,41 +1850,71 @@ class MainWindow:
         image_file: ImageFile | None,
     ) -> None:
         screen_x, screen_y = self._control_point_to_screen(source_hwnd, x, y)
-        command = self._show_path_context_menu(screen_x, screen_y)
-        if command == CONTEXT_COPY_IMAGE_PATH_ID:
-            if image_file is None:
-                self._set_window_text(self.status_bar, "コピーする画像がありません")
-                return
-            self._copy_path_to_clipboard(image_file.path, "画像パス")
-        elif command == CONTEXT_COPY_FOLDER_PATH_ID:
-            self._handle_copy_folder_path()
+        self._context_menu_image_file = image_file
+        try:
+            command = self._show_path_context_menu(screen_x, screen_y)
+        finally:
+            self._context_menu_image_file = None
+        if command == CONTEXT_COPY_IMAGE_PATH_ID and image_file is None:
+            self._set_window_text(self.status_bar, "コピーする画像がありません")
+            return
+        self._handle_safe_image_context_command(command, image_file)
 
     def _handle_preview_context_menu(self, source_hwnd: int | None, x: int, y: int) -> None:
         screen_x, screen_y = self._control_point_to_screen(source_hwnd, x, y)
-        command = self._show_path_context_menu(screen_x, screen_y)
-        if command == CONTEXT_COPY_IMAGE_PATH_ID:
-            self._handle_copy_image_path()
-        elif command == CONTEXT_COPY_FOLDER_PATH_ID:
-            self._handle_copy_folder_path()
+        self._context_menu_image_file = self._selected_image_file
+        try:
+            command = self._show_path_context_menu(screen_x, screen_y)
+        finally:
+            self._context_menu_image_file = None
+        self._handle_safe_image_context_command(command, self._selected_image_file)
 
     def _handle_fullscreen_context_menu(self, source_hwnd: int | None, x: int, y: int) -> None:
         screen_x, screen_y = self._control_point_to_screen(source_hwnd, x, y)
-        command = self._show_path_context_menu(screen_x, screen_y, owner_hwnd=source_hwnd)
+        self._context_menu_image_file = self._selected_image_file
+        try:
+            command = self._show_path_context_menu(screen_x, screen_y, owner_hwnd=source_hwnd)
+        finally:
+            self._context_menu_image_file = None
+        if command in {
+            CONTEXT_OPEN_IMAGE_ID,
+            CONTEXT_OPEN_IMAGE_FOLDER_ID,
+            CONTEXT_COPY_FILE_NAME_ID,
+            CONTEXT_SHOW_PROPERTIES_ID,
+        }:
+            self._handle_safe_image_context_command(command, self._selected_image_file)
+            return
         if command == CONTEXT_COPY_IMAGE_PATH_ID:
             self._handle_fullscreen_copy_image_path()
         elif command == CONTEXT_COPY_FOLDER_PATH_ID:
             self._handle_fullscreen_copy_folder_path()
 
     def _show_path_context_menu(self, screen_x: int, screen_y: int, owner_hwnd: int | None = None) -> int:
+        image_file = getattr(self, "_context_menu_image_file", self._selected_image_file)
+        return self._show_safe_image_context_menu(screen_x, screen_y, image_file, owner_hwnd=owner_hwnd)
+
+    def _show_safe_image_context_menu(
+        self,
+        screen_x: int,
+        screen_y: int,
+        image_file: ImageFile | None,
+        owner_hwnd: int | None = None,
+    ) -> int:
         menu_owner = owner_hwnd or self.hwnd
         if not menu_owner:
             return 0
         menu = user32.CreatePopupMenu()
         if not menu:
             return 0
+        enabled_flag = MF_STRING if image_file is not None else MF_STRING | MF_GRAYED
         try:
-            user32.AppendMenuW(menu, MF_STRING, CONTEXT_COPY_IMAGE_PATH_ID, "画像パスをコピー")
-            user32.AppendMenuW(menu, MF_STRING, CONTEXT_COPY_FOLDER_PATH_ID, "フォルダパスをコピー")
+            user32.AppendMenuW(menu, enabled_flag, CONTEXT_OPEN_IMAGE_ID, "開く")
+            user32.AppendMenuW(menu, enabled_flag, CONTEXT_OPEN_IMAGE_FOLDER_ID, "フォルダを開く")
+            user32.AppendMenuW(menu, MF_SEPARATOR, 0, "")
+            user32.AppendMenuW(menu, enabled_flag, CONTEXT_COPY_IMAGE_PATH_ID, "パスをコピー")
+            user32.AppendMenuW(menu, enabled_flag, CONTEXT_COPY_FILE_NAME_ID, "ファイル名をコピー")
+            user32.AppendMenuW(menu, MF_SEPARATOR, 0, "")
+            user32.AppendMenuW(menu, enabled_flag, CONTEXT_SHOW_PROPERTIES_ID, "プロパティ")
             user32.SetForegroundWindow(menu_owner)
             return int(
                 user32.TrackPopupMenu(
@@ -1893,6 +1929,80 @@ class MainWindow:
             )
         finally:
             user32.DestroyMenu(menu)
+
+    def _handle_safe_image_context_command(self, command: int, image_file: ImageFile | None) -> bool:
+        if command == CONTEXT_OPEN_IMAGE_ID:
+            return self._handle_context_open_image(image_file)
+        if command == CONTEXT_OPEN_IMAGE_FOLDER_ID:
+            return self._handle_context_open_image_folder(image_file)
+        if command == CONTEXT_COPY_IMAGE_PATH_ID:
+            return self._handle_context_copy_image_path(image_file)
+        if command == CONTEXT_COPY_FOLDER_PATH_ID:
+            return self._handle_copy_folder_path()
+        if command == CONTEXT_COPY_FILE_NAME_ID:
+            return self._handle_context_copy_file_name(image_file)
+        if command == CONTEXT_SHOW_PROPERTIES_ID:
+            return self._handle_context_show_properties(image_file)
+        return False
+
+    def _context_image_file(self, image_file: ImageFile | None = None) -> ImageFile | None:
+        return image_file or self._selected_image_file
+
+    def _handle_context_open_image(self, image_file: ImageFile | None = None) -> bool:
+        target = self._context_image_file(image_file)
+        if target is None:
+            self._set_window_text(self.status_bar, "開く画像が選択されていません")
+            return False
+        selected_index = self._index_for_path(self.thumbnail_grid.items, target.path)
+        if selected_index is not None:
+            self.thumbnail_grid.select_index(selected_index)
+        self._open_fullscreen()
+        return True
+
+    def _handle_context_open_image_folder(self, image_file: ImageFile | None = None) -> bool:
+        target = self._context_image_file(image_file)
+        if target is None:
+            self._set_window_text(self.status_bar, "開くフォルダの画像が選択されていません")
+            return False
+        return self._open_folder_in_explorer(target.path.parent, "画像フォルダ")
+
+    def _handle_context_copy_image_path(self, image_file: ImageFile | None = None) -> bool:
+        target = self._context_image_file(image_file)
+        if target is None:
+            self._set_window_text(self.status_bar, "コピーする画像が選択されていません")
+            return False
+        return self._copy_path_to_clipboard(target.path, "画像パス")
+
+    def _handle_context_copy_file_name(self, image_file: ImageFile | None = None) -> bool:
+        target = self._context_image_file(image_file)
+        if target is None:
+            self._set_window_text(self.status_bar, "コピーするファイル名が選択されていません")
+            return False
+        try:
+            self._copy_text_to_clipboard(target.name)
+        except OSError:
+            traceback.print_exc(file=sys.stderr)
+            self._set_window_text(self.status_bar, "ファイル名をコピーできませんでした")
+            return False
+        self._set_window_text(self.status_bar, f"ファイル名をコピーしました: {target.name}")
+        return True
+
+    def _handle_context_show_properties(self, image_file: ImageFile | None = None) -> bool:
+        target = self._context_image_file(image_file)
+        if target is None:
+            self._set_window_text(self.status_bar, "プロパティを表示する画像が選択されていません")
+            return False
+        try:
+            result = shell32.ShellExecuteW(self.hwnd, "properties", str(display_path(target.path)), None, None, SW_SHOW)
+        except OSError as error:
+            traceback.print_exc(file=sys.stderr)
+            self._set_window_text(self.status_bar, f"プロパティを開けませんでした: {error}")
+            return False
+        if _shell_execute_failed(result):
+            self._set_window_text(self.status_bar, f"プロパティを開けませんでした: {target.name}")
+            return False
+        self._set_window_text(self.status_bar, f"プロパティを開きました: {target.name}")
+        return True
 
     def _control_point_to_screen(self, source_hwnd: int | None, x: int, y: int) -> tuple[int, int]:
         if not source_hwnd:
