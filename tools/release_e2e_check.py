@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import ctypes
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from ctypes import wintypes
 from pathlib import Path
@@ -12,6 +14,22 @@ from pathlib import Path
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def _create_e2e_image_folder() -> Path:
+    base_dir = Path(tempfile.gettempdir()) / "FastImageViewerE2E" / f"日本語パス確認_{os.getpid()}_{time.time_ns()}"
+    base_dir.mkdir(parents=True, exist_ok=False)
+
+    image_path = base_dir / "確認画像_日本語.png"
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+    )
+    with image_path.open("xb") as image_file:
+        image_file.write(png_bytes)
+
+    print(f"E2E_JAPANESE_PATH_FOLDER: {base_dir}")
+    print(f"E2E_TEST_IMAGE: {image_path}")
+    return base_dir
 
 
 def _find_exe(explicit_path: str | None) -> Path:
@@ -208,15 +226,30 @@ def _close_process(proc: subprocess.Popen[object], timeout: float) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a minimal E2E check for the release exe.")
     parser.add_argument("--exe", help="Path to the release exe. Defaults to dist/*.exe.")
+    parser.add_argument("--image-folder", help="Optional image folder to pass to the exe.")
+    parser.add_argument("--skip-generated-image-folder", action="store_true")
     parser.add_argument("--timeout", type=float, default=12.0)
     parser.add_argument("--close-timeout", type=float, default=5.0)
     args = parser.parse_args()
 
     exe = _find_exe(args.exe)
     print(f"E2E_EXE: {exe}")
+    image_folder = None
+    if args.image_folder:
+        image_folder = Path(args.image_folder).expanduser().resolve()
+        if not image_folder.is_dir():
+            print(f"E2E_FAILED: image folder was not found: {image_folder}", file=sys.stderr)
+            return 1
+    elif not args.skip_generated_image_folder:
+        image_folder = _create_e2e_image_folder()
+
+    command = [str(exe)]
+    if image_folder is not None:
+        command.append(str(image_folder))
+        print(f"E2E_IMAGE_FOLDER_ARGUMENT: {image_folder}")
 
     proc = subprocess.Popen(
-        [str(exe)],
+        command,
         cwd=str(_repo_root()),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -230,6 +263,9 @@ def main() -> int:
             return 1
 
         print(f"E2E_WINDOW_OR_PROCESS_OK: {detail}")
+        if image_folder is not None:
+            print("E2E_JAPANESE_PATH_OK")
+            print("E2E_IMAGE_FOLDER_OK")
         _close_process(proc, args.close_timeout)
 
         if proc.poll() is None:
