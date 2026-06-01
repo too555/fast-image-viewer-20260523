@@ -10,6 +10,14 @@ if errorlevel 1 exit /b %errorlevel%
 call :run_step "Exe smoke" "run_exe_smoke.bat"
 if errorlevel 1 exit /b %errorlevel%
 
+echo.
+echo ==== Minimal E2E ====
+python "tools\release_e2e_check.py"
+if errorlevel 1 (
+    echo RELEASE_CHECK_ALL_FAILED: Minimal E2E
+    exit /b %errorlevel%
+)
+
 call :run_step "Create release zip" "create_release_zip.bat"
 if errorlevel 1 exit /b %errorlevel%
 
