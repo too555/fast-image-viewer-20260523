@@ -956,7 +956,7 @@ class MainWindow:
         )
         self.parent_folder_button = self._create_child(
             "BUTTON",
-            "↑",
+            "上の階層へ",
             WS_CHILD | WS_VISIBLE,
             PARENT_FOLDER_ID,
         )
@@ -2237,9 +2237,10 @@ class MainWindow:
         group_margin = 2
         group_inner_margin = 6
         compact = width < 760
-        toolbar_button_height = 24
+        toolbar_button_height = 28
         button_width = 104 if compact else 112
-        folder_nav_button_width = 28
+        parent_folder_button_width = 76 if compact else 88
+        folder_nav_button_width = 32
         folder_nav_gap = 4
         cleanup_button_width = 104 if compact else 116
         favorite_button_width = 94 if compact else 108
@@ -2278,7 +2279,7 @@ class MainWindow:
         copy_image_button_width = 100 if compact else 116
         open_folder_button_width = 104 if compact else 118
         group_width = max(120, width - margin * 2)
-        control_height = 24
+        control_height = 28
         row_gap = 2
         show_status_area = self._show_status_area()
         show_path_area = self._show_path_area()
@@ -2345,11 +2346,11 @@ class MainWindow:
             self.parent_folder_button,
             folder_button_x,
             folder_row1_y,
-            folder_nav_button_width,
+            parent_folder_button_width,
             toolbar_button_height,
             True,
         )
-        folder_button_x += folder_nav_button_width + folder_nav_gap
+        folder_button_x += parent_folder_button_width + folder_nav_gap
         user32.MoveWindow(
             self.previous_folder_button,
             folder_button_x,
