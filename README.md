@@ -395,6 +395,12 @@ exe の主要機能確認は、これまで通り `python scripts\gui_smoke_chec
 
 `OS_POLICY_BLOCK` は成功扱いにしません。ただし、アプリ不具合とは分けて判断し、署名やWindows側ポリシーの制約として扱います。
 
+## 未署名exeの配布課題
+
+`dist\高速画像ビューア.exe` は未署名のため、Windows Code Integrity / Application Control により起動をブロックされる場合があります。これは Defender のウイルス検出とは別問題で、Zone.Identifier がない場合でも発生することがあります。
+
+配布確認では `OS_POLICY_BLOCK` と `APP_FAIL` を分けて判断します。`OS_POLICY_BLOCK` は成功扱いにはしませんが、アプリ本体の不具合とは区別します。将来の対応候補は、コード署名、インストーラー整備、配布先フォルダの固定です。
+
 ## 配布用zip作成
 
 配布前は exe を作成し、exe専用スモーク確認を通してから zip を作成します。
