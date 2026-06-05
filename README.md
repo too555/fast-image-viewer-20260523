@@ -401,6 +401,12 @@ exe の主要機能確認は、これまで通り `python scripts\gui_smoke_chec
 
 配布確認では `OS_POLICY_BLOCK` と `APP_FAIL` を分けて判断します。`OS_POLICY_BLOCK` は成功扱いにはしませんが、アプリ本体の不具合とは区別します。将来の対応候補は、コード署名、インストーラー整備、配布先フォルダの固定です。
 
+## 古いショートカット確認
+
+手動起動で `Failed to start embedded python interpreter` や `Failed to import encodings module` が出る場合は、古いexeまたは古いショートカットを起動していないか確認します。
+
+デスクトップとスタートメニューのショートカットのリンク先を確認し、通常は `dist\高速画像ビューア.exe` を指していることを見ます。古い `%LOCALAPPDATA%\Programs\高速画像ビューア\高速画像ビューア.exe` が残っていても、まず削除せず、ショートカットのリンク先確認を優先します。
+
 ## 配布用zip作成
 
 配布前は exe を作成し、exe専用スモーク確認を通してから zip を作成します。
