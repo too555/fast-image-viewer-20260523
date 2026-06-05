@@ -407,6 +407,16 @@ exe の主要機能確認は、これまで通り `python scripts\gui_smoke_chec
 
 個人利用では `dist\高速画像ビューア.exe` を直接確認すれば十分な場合があります。家族利用ではショートカット先と配布先フォルダを固定する方が安全です。外部配布では、コード署名とインストーラー整備を検討します。今回は、署名証明書購入、Defender除外、Smart App Control無効化は行いません。
 
+## 家族利用向け固定配布フォルダ
+
+家族利用で `dist` 配下の開発用exeと混同したくない場合は、固定フォルダへコピーします。
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\deploy_local_app.ps1
+```
+
+既定の配布先は `%USERPROFILE%\Apps\高速画像ビューア` です。このスクリプトは `dist\高速画像ビューア.exe` と `README.md` をコピーし、配布先、上書き有無、exeのSHA256を表示します。既存ファイルや古いLOCALAPPDATA側exeは削除せず、ショートカットの向け直しも行いません。
+
 ## 古いショートカット確認
 
 手動起動で `Failed to start embedded python interpreter` や `Failed to import encodings module` が出る場合は、古いexeまたは古いショートカットを起動していないか確認します。
