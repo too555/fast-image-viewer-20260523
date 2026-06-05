@@ -417,6 +417,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\deploy_local_app.p
 
 既定の配布先は `%USERPROFILE%\Apps\高速画像ビューア` です。このスクリプトは `dist\高速画像ビューア.exe` と `README.md` をコピーし、配布先、上書き有無、exeのSHA256を表示します。既存ファイルや古いLOCALAPPDATA側exeは削除せず、ショートカットの向け直しも行いません。
 
+`dist` は開発用の出力先です。実利用場所は `C:\Users\toru_\Apps\高速画像ビューア` に固定し、新しいexeを作った後は `tools\deploy_local_app.ps1` で反映します。更新後は Apps 側の `高速画像ビューア.exe` を起動し、`APPS_E2E_OK` 相当の確認ができることを見ます。デスクトップとスタートメニューのショートカットは Apps 側exeを参照します。
+
 ## 古いショートカット確認
 
 手動起動で `Failed to start embedded python interpreter` や `Failed to import encodings module` が出る場合は、古いexeまたは古いショートカットを起動していないか確認します。
