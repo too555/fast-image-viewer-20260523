@@ -407,6 +407,21 @@ exe の主要機能確認は、これまで通り `python scripts\gui_smoke_chec
 
 デスクトップとスタートメニューのショートカットのリンク先を確認し、通常は `dist\高速画像ビューア.exe` を指していることを見ます。古い `%LOCALAPPDATA%\Programs\高速画像ビューア\高速画像ビューア.exe` が残っていても、まず削除せず、ショートカットのリンク先確認を優先します。
 
+## 配布前の最短確認手順
+
+別PCで使う前や家族へ渡す前は、まず作業ツリーがクリーンであることを確認します。
+
+```powershell
+git status --short
+python -m py_compile app\ui\main_window.py
+python -m unittest discover -s tests
+python scripts\gui_smoke_check.py
+```
+
+exeを渡す場合は `dist\高速画像ビューア.exe` を手動起動し、必要に応じてデスクトップとスタートメニューのショートカット先が同じexeを指していることを確認します。配布物を作り直す場合だけ `release_check_all.bat` を実行します。
+
+エラー時は `APP_FAIL`、`OS_POLICY_BLOCK`、古いショートカットのどれに当たるかを分けて見ます。未署名exeは Windows Code Integrity / Application Control で止まる場合があります。
+
 ## 配布用zip作成
 
 配布前は exe を作成し、exe専用スモーク確認を通してから zip を作成します。
