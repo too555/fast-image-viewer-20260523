@@ -384,6 +384,17 @@ dist\高速画像ビューア.exe
 `run_exe_smoke.bat` は `dist\高速画像ビューア.exe` の存在を確認し、exe を起動して数秒以内に落ちないことを確認してから閉じます。exe が見つからない場合や起動できない場合は、原因が分かるメッセージを表示します。
 
 exe の主要機能確認は、これまで通り `python scripts\gui_smoke_check.py` と実際の画面操作で確認します。`dist/`、`build/`、`.venv/`、exe 本体は Git 管理対象にしません。
+
+## release一括チェックの判定
+
+`release_check_all.bat` は、Exe smoke と最小E2Eの結果を次の3種類で表示します。
+
+- `PASS`: exe起動確認またはE2E確認が正常終了した状態です。
+- `APP_FAIL`: exeやアプリ本体の起動確認に失敗した状態です。`Failed to start embedded python interpreter` や `Failed to import encodings module` などはアプリ側の起動失敗として扱います。
+- `OS_POLICY_BLOCK`: Windows Application Control / Code Integrity により未署名exeがブロックされた状態です。`did not meet the Enterprise signing level requirements` などはこの分類です。
+
+`OS_POLICY_BLOCK` は成功扱いにしません。ただし、アプリ不具合とは分けて判断し、署名やWindows側ポリシーの制約として扱います。
+
 ## 配布用zip作成
 
 配布前は exe を作成し、exe専用スモーク確認を通してから zip を作成します。
