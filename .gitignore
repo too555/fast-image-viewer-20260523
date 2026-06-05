@@ -15,6 +15,7 @@ __pycache__/
 # Packaging
 build/
 dist/
+*.spec
 *.egg-info/
 
 # Local test data
@@ -32,6 +33,11 @@ previews/
 
 # Test artifacts
 test_artifacts/
+test_assets/
+
+# Local settings and logs
+settings.json
+logs/
 
 # OS
 Thumbs.db
