@@ -222,6 +222,7 @@ WM_SETFONT = 0x0030
 WM_THUMBNAIL_READY = WM_APP + 1
 WM_PREVIEW_READY = WM_APP + 2
 WM_FULLSCREEN_READY = WM_APP + 3
+TTM_ADDTOOLW = WM_USER + 50
 PREVIEW_START_DELAY_SECONDS = 0.08
 
 BN_CLICKED = 0
@@ -253,11 +254,16 @@ MB_ICONINFORMATION = 0x00000040
 
 WS_OVERLAPPEDWINDOW = 0x00CF0000
 WS_CHILD = 0x40000000
+WS_POPUP = 0x80000000
 WS_VISIBLE = 0x10000000
 WS_GROUP = 0x00020000
 WS_VSCROLL = 0x00200000
 SS_ENDELLIPSIS = 0x00004000
 SS_PATHELLIPSIS = 0x00008000
+TTS_ALWAYSTIP = 0x00000001
+TTS_NOPREFIX = 0x00000002
+TTF_IDISHWND = 0x00000001
+TTF_SUBCLASS = 0x00000010
 TBS_AUTOTICKS = 0x0001
 TBS_NOTICKS = 0x0010
 TBM_GETPOS = WM_USER
@@ -504,6 +510,20 @@ class BROWSEINFOW(ctypes.Structure):
     ]
 
 
+class TOOLINFOW(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.UINT),
+        ("uFlags", wintypes.UINT),
+        ("hwnd", wintypes.HWND),
+        ("uId", wintypes.WPARAM),
+        ("rect", RECT),
+        ("hinst", wintypes.HINSTANCE),
+        ("lpszText", wintypes.LPWSTR),
+        ("lParam", wintypes.LPARAM),
+        ("lpReserved", ctypes.c_void_p),
+    ]
+
+
 class INITCOMMONCONTROLSEX(ctypes.Structure):
     _fields_ = [
         ("dwSize", wintypes.DWORD),
@@ -535,6 +555,8 @@ class MainWindow:
         self.parent_folder_button: int | None = None
         self.previous_folder_button: int | None = None
         self.next_folder_button: int | None = None
+        self.navigation_tooltip: int | None = None
+        self._navigation_tooltip_texts: list[ctypes.Array[ctypes.c_wchar]] = []
         self.cleanup_invalid_button: int | None = None
         self.recent_label: int | None = None
         self.recent_combo: int | None = None
@@ -962,13 +984,13 @@ class MainWindow:
         )
         self.previous_folder_button = self._create_child(
             "BUTTON",
-            "←",
+            "戻る",
             WS_CHILD | WS_VISIBLE,
             PREVIOUS_FOLDER_ID,
         )
         self.next_folder_button = self._create_child(
             "BUTTON",
-            "→",
+            "進む",
             WS_CHILD | WS_VISIBLE,
             NEXT_FOLDER_ID,
         )
@@ -1225,6 +1247,53 @@ class MainWindow:
             WS_CHILD | WS_VISIBLE,
             OPEN_SELECTED_FOLDER_ID,
         )
+        self._create_navigation_tooltips()
+
+    def _create_navigation_tooltips(self) -> None:
+        if self.hwnd is None:
+            return
+        hinstance = kernel32.GetModuleHandleW(None)
+        tooltip_hwnd = user32.CreateWindowExW(
+            0,
+            "tooltips_class32",
+            "",
+            WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            self.hwnd,
+            wintypes.HMENU(0),
+            hinstance,
+            None,
+        )
+        if not tooltip_hwnd:
+            return
+
+        self.navigation_tooltip = int(tooltip_hwnd)
+        self._navigation_tooltip_texts.clear()
+        self._add_tooltip(self.previous_folder_button, "同じ階層の前のフォルダへ")
+        self._add_tooltip(self.next_folder_button, "同じ階層の次のフォルダへ")
+        self._add_tooltip(self.parent_folder_button, "上の階層へ")
+
+    def _add_tooltip(self, control_hwnd: int | None, text: str) -> None:
+        if self.hwnd is None or self.navigation_tooltip is None or control_hwnd is None:
+            return
+        text_buffer = ctypes.create_unicode_buffer(text)
+        self._navigation_tooltip_texts.append(text_buffer)
+        tool_info = TOOLINFOW(
+            cbSize=ctypes.sizeof(TOOLINFOW),
+            uFlags=TTF_IDISHWND | TTF_SUBCLASS,
+            hwnd=self.hwnd,
+            uId=control_hwnd,
+            rect=RECT(),
+            hinst=kernel32.GetModuleHandleW(None),
+            lpszText=ctypes.cast(text_buffer, wintypes.LPWSTR),
+            lParam=0,
+            lpReserved=None,
+        )
+        tool_pointer = ctypes.cast(ctypes.pointer(tool_info), ctypes.c_void_p).value
+        user32.SendMessageW(self.navigation_tooltip, TTM_ADDTOOLW, 0, tool_pointer or 0)
 
     def _create_child(self, class_name: str, text: str, style: int, control_id: int) -> int:
         hinstance = kernel32.GetModuleHandleW(None)
@@ -2240,7 +2309,7 @@ class MainWindow:
         toolbar_button_height = 28
         button_width = 104 if compact else 112
         parent_folder_button_width = 76 if compact else 88
-        folder_nav_button_width = 32
+        folder_nav_button_width = 52 if compact else 56
         folder_nav_gap = 4
         cleanup_button_width = 104 if compact else 116
         favorite_button_width = 94 if compact else 108
@@ -2343,15 +2412,6 @@ class MainWindow:
         user32.MoveWindow(self.open_button, folder_button_x, folder_row1_y, button_width, toolbar_button_height, True)
         folder_button_x += button_width + folder_nav_gap
         user32.MoveWindow(
-            self.parent_folder_button,
-            folder_button_x,
-            folder_row1_y,
-            parent_folder_button_width,
-            toolbar_button_height,
-            True,
-        )
-        folder_button_x += parent_folder_button_width + folder_nav_gap
-        user32.MoveWindow(
             self.previous_folder_button,
             folder_button_x,
             folder_row1_y,
@@ -2368,7 +2428,16 @@ class MainWindow:
             toolbar_button_height,
             True,
         )
-        folder_button_x += folder_nav_button_width + 8
+        folder_button_x += folder_nav_button_width + folder_nav_gap
+        user32.MoveWindow(
+            self.parent_folder_button,
+            folder_button_x,
+            folder_row1_y,
+            parent_folder_button_width,
+            toolbar_button_height,
+            True,
+        )
+        folder_button_x += parent_folder_button_width + 8
         cleanup_button_x = max(folder_button_x, inner_right - cleanup_button_width)
         user32.MoveWindow(
             self.cleanup_invalid_button,
