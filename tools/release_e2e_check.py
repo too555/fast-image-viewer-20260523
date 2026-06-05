@@ -12,6 +12,45 @@ from ctypes import wintypes
 from pathlib import Path
 
 
+PASS = "PASS"
+APP_FAIL = "APP_FAIL"
+OS_POLICY_BLOCK = "OS_POLICY_BLOCK"
+
+OS_POLICY_PATTERNS = (
+    "application control policy has blocked this file",
+    "did not meet the enterprise signing level requirements",
+    "code integrity",
+    "blocked by group policy",
+    "blocked by your system administrator",
+)
+
+APP_FAIL_PATTERNS = (
+    "failed to start embedded python interpreter",
+    "failed to import encodings module",
+)
+
+
+def classify_release_result(output: str, exit_code: int | None = None) -> str:
+    normalized = output.lower()
+    if any(pattern in normalized for pattern in OS_POLICY_PATTERNS):
+        return OS_POLICY_BLOCK
+    if any(pattern in normalized for pattern in APP_FAIL_PATTERNS):
+        return APP_FAIL
+    if exit_code == 0:
+        return PASS
+    if exit_code is None and ("e2e_ok" in normalized or "exe_smoke_ok" in normalized):
+        return PASS
+    return APP_FAIL
+
+
+def print_release_classification(classification: str, prefix: str = "RELEASE_CHECK_RESULT") -> None:
+    print(f"{prefix}: {classification}")
+    if classification == OS_POLICY_BLOCK:
+        print("RELEASE_CHECK_REASON: Windows Application Control / Code Integrity blocked the unsigned exe.")
+    elif classification == APP_FAIL:
+        print("RELEASE_CHECK_REASON: The exe or application startup check failed.")
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
@@ -225,12 +264,20 @@ def _close_process(proc: subprocess.Popen[object], timeout: float) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a minimal E2E check for the release exe.")
+    parser.add_argument("--classify-log", help="Classify an existing release-check log and exit.")
+    parser.add_argument("--exit-code", type=int, help="Exit code associated with --classify-log.")
     parser.add_argument("--exe", help="Path to the release exe. Defaults to dist/*.exe.")
     parser.add_argument("--image-folder", help="Optional image folder to pass to the exe.")
     parser.add_argument("--skip-generated-image-folder", action="store_true")
     parser.add_argument("--timeout", type=float, default=12.0)
     parser.add_argument("--close-timeout", type=float, default=5.0)
     args = parser.parse_args()
+
+    if args.classify_log:
+        log_text = Path(args.classify_log).read_text(encoding="utf-8", errors="replace")
+        classification = classify_release_result(log_text, args.exit_code)
+        print_release_classification(classification)
+        return 0
 
     exe = _find_exe(args.exe)
     print(f"E2E_EXE: {exe}")
@@ -239,6 +286,7 @@ def main() -> int:
         image_folder = Path(args.image_folder).expanduser().resolve()
         if not image_folder.is_dir():
             print(f"E2E_FAILED: image folder was not found: {image_folder}", file=sys.stderr)
+            print_release_classification(APP_FAIL, prefix="E2E_RESULT")
             return 1
     elif not args.skip_generated_image_folder:
         image_folder = _create_e2e_image_folder()
@@ -248,18 +296,28 @@ def main() -> int:
         command.append(str(image_folder))
         print(f"E2E_IMAGE_FOLDER_ARGUMENT: {image_folder}")
 
-    proc = subprocess.Popen(
-        command,
-        cwd=str(_repo_root()),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    try:
+        proc = subprocess.Popen(
+            command,
+            cwd=str(_repo_root()),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        detail = f"{type(exc).__name__}: {exc}"
+        print(f"E2E_FAILED: {detail}", file=sys.stderr)
+        classification = classify_release_result(detail, 1)
+        print_release_classification(classification, prefix="E2E_RESULT")
+        return 1
+
     print(f"E2E_PROCESS_PID: {proc.pid}")
 
     try:
         ok, detail = _wait_for_window_or_process(proc, args.timeout)
         if not ok:
             print(f"E2E_FAILED: {detail}", file=sys.stderr)
+            classification = classify_release_result(detail, 1)
+            print_release_classification(classification, prefix="E2E_RESULT")
             return 1
 
         print(f"E2E_WINDOW_OR_PROCESS_OK: {detail}")
@@ -270,9 +328,11 @@ def main() -> int:
 
         if proc.poll() is None:
             print("E2E_FAILED: process did not close", file=sys.stderr)
+            print_release_classification(APP_FAIL, prefix="E2E_RESULT")
             return 1
 
         print(f"E2E_CLOSE_OK: exit_code={proc.returncode}")
+        print_release_classification(PASS, prefix="E2E_RESULT")
         print("E2E_OK")
         return 0
     finally:
