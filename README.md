@@ -144,7 +144,7 @@ exeを作成します。
 dist\高速画像ビューア.exe
 ```
 
-作成後は `dist\高速画像ビューア.exe` をダブルクリック、またはPowerShellから起動し、フォルダ選択、サムネイル、プレビュー、全画面、比較表示、リサイズ保存、キャッシュ管理を確認します。
+作成後は `dist\高速画像ビューア.exe` でビルド結果を確認します。家族利用や普段使いでは `tools\deploy_local_app.ps1` で `C:\Users\toru_\Apps\高速画像ビューア\高速画像ビューア.exe` へ反映してから起動します。
 
 `dist/`、`build/`、`.venv/`、exe本体はGit管理対象にしません。`fast_image_viewer.spec` は再現性のためGit管理してよい設定ファイルです。
 
@@ -423,7 +423,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\deploy_local_app.p
 
 手動起動で `Failed to start embedded python interpreter` や `Failed to import encodings module` が出る場合は、古いexeまたは古いショートカットを起動していないか確認します。
 
-デスクトップとスタートメニューのショートカットのリンク先を確認し、通常は `dist\高速画像ビューア.exe` を指していることを見ます。古い `%LOCALAPPDATA%\Programs\高速画像ビューア\高速画像ビューア.exe` が残っていても、まず削除せず、ショートカットのリンク先確認を優先します。
+デスクトップとスタートメニューのショートカットのリンク先を確認し、通常は `C:\Users\toru_\Apps\高速画像ビューア\高速画像ビューア.exe` を指していることを見ます。古い `%LOCALAPPDATA%\Programs\高速画像ビューア\高速画像ビューア.exe` が残っていても、まず削除せず、ショートカットのリンク先確認を優先します。
 
 ## 配布前の最短確認手順
 
@@ -436,7 +436,7 @@ python -m unittest discover -s tests
 python scripts\gui_smoke_check.py
 ```
 
-exeを渡す場合は `dist\高速画像ビューア.exe` を手動起動し、必要に応じてデスクトップとスタートメニューのショートカット先が同じexeを指していることを確認します。配布物を作り直す場合だけ `release_check_all.bat` を実行します。
+exeを家族利用へ反映する場合は `tools\deploy_local_app.ps1` を使い、`C:\Users\toru_\Apps\高速画像ビューア\高速画像ビューア.exe` を手動起動します。デスクトップとスタートメニューのショートカット先も同じApps側exeを指していることを確認します。配布物を作り直す場合だけ `release_check_all.bat` を実行します。
 
 エラー時は `APP_FAIL`、`OS_POLICY_BLOCK`、古いショートカットのどれに当たるかを分けて見ます。未署名exeは Windows Code Integrity / Application Control で止まる場合があります。
 
