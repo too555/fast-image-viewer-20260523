@@ -218,6 +218,7 @@ dist\高速画像ビューア.exe
 - Select the saved resized image and show it in the preview after saving.
 - Keep the saved image in the current sort order when it is inserted.
 - Open the selected image's containing folder in Explorer.
+- Use compact Explorer buttons: 画像場所, 現在フォルダ, 保存先, 画像パスコピー, and フォルダパスコピー.
 - Keep resize-saved images selected so their save folder can be opened immediately.
 - Show open-folder success, missing target, and no-selection results in the status bar.
 - Show resize save results in the status bar.

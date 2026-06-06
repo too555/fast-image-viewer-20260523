@@ -583,6 +583,53 @@ class FolderSelectionTest(unittest.TestCase):
         self.assertFalse(window._handle_context_reveal_image_in_explorer(None))
         self.assertEqual(messages, ["選択表示する画像が選択されていません"])
 
+    def test_reveal_selected_image_button_uses_explorer_select(self) -> None:
+        original_path_exists = main_window.path_exists
+        original_shell32 = main_window.shell32
+        selected = _image_file(Path("C:/images/photo.jpg"), 1)
+        calls: list[tuple[int | None, str, str, object, object, int]] = []
+
+        class FakeShell32:
+            def ShellExecuteW(
+                self,
+                hwnd: int | None,
+                operation: str,
+                file_path: str,
+                parameters: object,
+                directory: object,
+                show_command: int,
+            ) -> int:
+                calls.append((hwnd, operation, file_path, parameters, directory, show_command))
+                return 33
+
+        try:
+            main_window.path_exists = lambda path: path == selected.path  # type: ignore[assignment]
+            main_window.shell32 = FakeShell32()  # type: ignore[assignment]
+            window = main_window.MainWindow()
+            window.hwnd = 55
+            window.status_bar = 102
+            window._selected_image_file = selected
+            window._set_window_text = lambda _hwnd, _text: None  # type: ignore[method-assign]
+
+            self.assertTrue(window._handle_reveal_selected_image_in_explorer())
+        finally:
+            main_window.path_exists = original_path_exists  # type: ignore[assignment]
+            main_window.shell32 = original_shell32  # type: ignore[assignment]
+
+        self.assertEqual(
+            calls,
+            [(55, "open", "explorer.exe", f'/select,"{selected.path}"', None, main_window.SW_SHOW)],
+        )
+
+    def test_reveal_selected_image_button_without_selection_does_not_crash(self) -> None:
+        window = main_window.MainWindow()
+        messages: list[str] = []
+        window.status_bar = 102
+        window._set_window_text = lambda _hwnd, text: messages.append(text)  # type: ignore[method-assign]
+
+        self.assertFalse(window._handle_reveal_selected_image_in_explorer())
+        self.assertEqual(messages, ["画像場所を表示する画像が選択されていません"])
+
     def test_handle_select_folder_loads_selected_folder(self) -> None:
         window = main_window.MainWindow()
         selected = Path("C:/selected-images")
@@ -665,6 +712,48 @@ class FolderSelectionTest(unittest.TestCase):
 
         self.assertFalse(window._handle_open_next_folder())
         self.assertEqual(messages, ["現在フォルダがありません"])
+
+    def test_open_resize_output_folder_uses_selected_destination(self) -> None:
+        original_path_is_dir = main_window.path_is_dir
+        original_shell32 = main_window.shell32
+        output_folder = Path("C:/resize-output")
+        calls: list[tuple[int | None, str, str, object, object, int]] = []
+
+        class FakeShell32:
+            def ShellExecuteW(
+                self,
+                hwnd: int | None,
+                operation: str,
+                file_path: str,
+                parameters: object,
+                directory: object,
+                show_command: int,
+            ) -> int:
+                calls.append((hwnd, operation, file_path, parameters, directory, show_command))
+                return 33
+
+        try:
+            main_window.path_is_dir = lambda folder: folder == output_folder  # type: ignore[assignment]
+            main_window.shell32 = FakeShell32()  # type: ignore[assignment]
+            window = main_window.MainWindow()
+            window.hwnd = 55
+            window.resize_output_folder = output_folder
+            window._set_window_text = lambda _hwnd, _text: None  # type: ignore[method-assign]
+
+            self.assertTrue(window._handle_open_resize_output_folder())
+        finally:
+            main_window.path_is_dir = original_path_is_dir  # type: ignore[assignment]
+            main_window.shell32 = original_shell32  # type: ignore[assignment]
+
+        self.assertEqual(calls, [(55, "open", str(output_folder), None, None, main_window.SW_SHOW)])
+
+    def test_open_resize_output_folder_without_destination_does_not_crash(self) -> None:
+        window = main_window.MainWindow()
+        messages: list[str] = []
+        window._set_window_text = lambda _hwnd, text: messages.append(text)  # type: ignore[method-assign]
+
+        self.assertFalse(window._handle_open_resize_output_folder())
+        self.assertEqual(messages, ["開く保存先フォルダがありません"])
 
     def test_select_resize_output_folder_saves_destination(self) -> None:
         original_save_resize_output_folder = main_window.save_resize_output_folder

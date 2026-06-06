@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -19,6 +21,18 @@ def _image_file(name: str, mtime: float, size: int = 100) -> ImageFile:
 
 
 class SortingTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._original_localappdata = os.environ.get("LOCALAPPDATA")
+        self._temp_localappdata = tempfile.TemporaryDirectory()
+        os.environ["LOCALAPPDATA"] = self._temp_localappdata.name
+
+    def tearDown(self) -> None:
+        if self._original_localappdata is None:
+            os.environ.pop("LOCALAPPDATA", None)
+        else:
+            os.environ["LOCALAPPDATA"] = self._original_localappdata
+        self._temp_localappdata.cleanup()
+
     def test_sorts_by_natural_file_name(self) -> None:
         window = MainWindow()
         items = [

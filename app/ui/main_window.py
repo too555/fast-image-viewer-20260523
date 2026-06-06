@@ -324,6 +324,8 @@ CONTEXT_OPEN_IMAGE_FOLDER_ID = 1037
 CONTEXT_COPY_FILE_NAME_ID = 1038
 CONTEXT_SHOW_PROPERTIES_ID = 1039
 CONTEXT_REVEAL_IMAGE_ID = 1040
+REVEAL_SELECTED_IMAGE_ID = 1041
+OPEN_RESIZE_OUTPUT_FOLDER_ID = 1042
 OPERATION_GUIDE_ID = 1014
 OPTIONS_DIALOG_ID = 1035
 RESIZE_SIZE_800_ID = 1015
@@ -605,6 +607,8 @@ class MainWindow:
         self.copy_folder_path_button: int | None = None
         self.copy_image_path_button: int | None = None
         self.open_selected_folder_button: int | None = None
+        self.reveal_selected_image_button: int | None = None
+        self.open_resize_output_folder_button: int | None = None
         self.folder_tree = FolderTree()
         self.thumbnail_grid = ThumbnailGrid()
         self.thumbnail_size = load_thumbnail_size()
@@ -894,6 +898,12 @@ class MainWindow:
             if control_id == OPEN_SELECTED_FOLDER_ID and notification == BN_CLICKED:
                 self._handle_open_selected_image_folder()
                 return 0
+            if control_id == REVEAL_SELECTED_IMAGE_ID and notification == BN_CLICKED:
+                self._handle_reveal_selected_image_in_explorer()
+                return 0
+            if control_id == OPEN_RESIZE_OUTPUT_FOLDER_ID and notification == BN_CLICKED:
+                self._handle_open_resize_output_folder()
+                return 0
             if control_id == OPEN_CURRENT_FOLDER_ID and notification == BN_CLICKED:
                 self._handle_open_current_folder()
                 return 0
@@ -1174,7 +1184,7 @@ class MainWindow:
         self.current_path_label = self._create_child("STATIC", "\u30d5\u30a9\u30eb\u30c0\u672a\u9078\u629e", WS_CHILD | WS_VISIBLE | SS_PATHELLIPSIS, 0)
         self.current_path_open_button = self._create_child(
             "BUTTON",
-            "\u30a8\u30af\u30b9\u30d7\u30ed\u30fc\u30e9\u30fc\u3067\u958b\u304f",
+            "\u73fe\u5728\u30d5\u30a9\u30eb\u30c0",
             WS_CHILD | WS_VISIBLE,
             OPEN_CURRENT_FOLDER_ID,
         )
@@ -1246,6 +1256,18 @@ class MainWindow:
             "保存先を開く",
             WS_CHILD | WS_VISIBLE,
             OPEN_SELECTED_FOLDER_ID,
+        )
+        self.reveal_selected_image_button = self._create_child(
+            "BUTTON",
+            "\u753b\u50cf\u5834\u6240",
+            WS_CHILD | WS_VISIBLE,
+            REVEAL_SELECTED_IMAGE_ID,
+        )
+        self.open_resize_output_folder_button = self._create_child(
+            "BUTTON",
+            "\u4fdd\u5b58\u5148",
+            WS_CHILD | WS_VISIBLE,
+            OPEN_RESIZE_OUTPUT_FOLDER_ID,
         )
         self._create_navigation_tooltips()
 
@@ -1798,6 +1820,25 @@ class MainWindow:
             return False
         return self._open_folder_in_explorer(self._selected_image_file.path.parent, "保存先フォルダ")
 
+    def _handle_reveal_selected_image_in_explorer(self) -> bool:
+        if self._selected_image_file is None:
+            self._set_window_text(self.status_bar, "\u753b\u50cf\u5834\u6240\u3092\u8868\u793a\u3059\u308b\u753b\u50cf\u304c\u9078\u629e\u3055\u308c\u3066\u3044\u307e\u305b\u3093")
+            return False
+        image_path = display_path(self._selected_image_file.path)
+        if not path_exists(image_path):
+            self._set_window_text(self.status_bar, f"\u753b\u50cf\u5834\u6240\u3092\u8868\u793a\u3059\u308b\u753b\u50cf\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093: {image_path}")
+            return False
+        return self._handle_context_reveal_image_in_explorer(self._selected_image_file)
+
+    def _handle_open_resize_output_folder(self) -> bool:
+        folder = self._effective_resize_output_folder()
+        if folder is None and self.current_folder is not None and path_is_dir(self.current_folder):
+            folder = display_path(self.current_folder)
+        if folder is None:
+            self._set_window_text(self.status_bar, "\u958b\u304f\u4fdd\u5b58\u5148\u30d5\u30a9\u30eb\u30c0\u304c\u3042\u308a\u307e\u305b\u3093")
+            return False
+        return self._open_folder_in_explorer(folder, "\u4fdd\u5b58\u5148\u30d5\u30a9\u30eb\u30c0")
+
     def _open_folder_in_explorer(self, folder: Path, label: str) -> bool:
         folder = display_path(folder)
         if not path_is_dir(folder):
@@ -2294,6 +2335,8 @@ class MainWindow:
             self.copy_folder_path_button,
             self.copy_image_path_button,
             self.open_selected_folder_button,
+            self.reveal_selected_image_button,
+            self.open_resize_output_folder_button,
         ]):
             return
 
@@ -2347,6 +2390,8 @@ class MainWindow:
         copy_folder_button_width = 112 if compact else 128
         copy_image_button_width = 100 if compact else 116
         open_folder_button_width = 104 if compact else 118
+        reveal_image_button_width = 78 if compact else 86
+        open_save_button_width = 64 if compact else 72
         group_width = max(120, width - margin * 2)
         control_height = 28
         row_gap = 2
@@ -2673,7 +2718,7 @@ class MainWindow:
             toolbar_button_height,
             True,
         )
-        current_path_button_width = 138 if compact else 160
+        current_path_button_width = 96 if compact else 110
         current_path_label_width = max(80, image_area_width - current_path_button_width - size_button_gap)
         for child in (self.current_path_label, self.current_path_open_button):
             user32.ShowWindow(child, SW_SHOW if show_path_area else SW_HIDE)
@@ -2720,11 +2765,15 @@ class MainWindow:
             self.copy_folder_path_button,
             self.copy_image_path_button,
             self.open_selected_folder_button,
+            self.reveal_selected_image_button,
+            self.open_resize_output_folder_button,
         ):
             user32.ShowWindow(child, SW_SHOW if show_status_area else SW_HIDE)
         if not show_status_area:
             return
-        open_folder_x = width - margin - open_folder_button_width
+        open_save_x = width - margin - open_save_button_width
+        reveal_image_x = open_save_x - size_button_gap - reveal_image_button_width
+        open_folder_x = reveal_image_x - size_button_gap - open_folder_button_width
         copy_image_x = open_folder_x - size_button_gap - copy_image_button_width
         copy_folder_x = copy_image_x - size_button_gap - copy_folder_button_width
         status_width = max(120, copy_folder_x - margin - size_button_gap)
@@ -2757,6 +2806,22 @@ class MainWindow:
             open_folder_x,
             status_message_y,
             open_folder_button_width,
+            22,
+            True,
+        )
+        user32.MoveWindow(
+            self.reveal_selected_image_button,
+            reveal_image_x,
+            status_message_y,
+            reveal_image_button_width,
+            22,
+            True,
+        )
+        user32.MoveWindow(
+            self.open_resize_output_folder_button,
+            open_save_x,
+            status_message_y,
+            open_save_button_width,
             22,
             True,
         )
