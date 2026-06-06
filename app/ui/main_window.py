@@ -829,10 +829,10 @@ class MainWindow:
             if self._handle_copy_shortcut(int(w_param)):
                 return 0
             if int(w_param) == VK_LEFT:
-                self.thumbnail_grid.select_relative(-1)
+                self._select_relative_image(-1)
                 return 0
             if int(w_param) == VK_RIGHT:
-                self.thumbnail_grid.select_relative(1)
+                self._select_relative_image(1)
                 return 0
             if int(w_param) == VK_HOME:
                 self.thumbnail_grid.select_first()
@@ -1200,8 +1200,8 @@ class MainWindow:
         self.thumbnail_grid.on_context_menu = self._handle_thumbnail_context_menu
         self.thumbnail_grid.on_copy_image_path = self._handle_copy_image_path
         self.thumbnail_grid.on_copy_folder_path = self._handle_copy_folder_path
-        self.thumbnail_grid.on_previous = lambda: self.thumbnail_grid.select_relative(-1)
-        self.thumbnail_grid.on_next = lambda: self.thumbnail_grid.select_relative(1)
+        self.thumbnail_grid.on_previous = lambda: self._select_relative_image(-1)
+        self.thumbnail_grid.on_next = lambda: self._select_relative_image(1)
         self.thumbnail_grid.on_parent_folder = self._handle_open_parent_folder
         self.thumbnail_grid.on_previous_folder = self._handle_open_previous_folder
         self.thumbnail_grid.on_next_folder = self._handle_open_next_folder
@@ -1213,8 +1213,8 @@ class MainWindow:
         self.image_preview.on_context_menu = self._handle_preview_context_menu
         self.image_preview.on_copy_image_path = self._handle_copy_image_path
         self.image_preview.on_copy_folder_path = self._handle_copy_folder_path
-        self.image_preview.on_previous = lambda: self.thumbnail_grid.select_relative(-1)
-        self.image_preview.on_next = lambda: self.thumbnail_grid.select_relative(1)
+        self.image_preview.on_previous = lambda: self._select_relative_image(-1)
+        self.image_preview.on_next = lambda: self._select_relative_image(1)
         self.image_preview.on_parent_folder = self._handle_open_parent_folder
         self.image_preview.on_previous_folder = self._handle_open_previous_folder
         self.image_preview.on_next_folder = self._handle_open_next_folder
@@ -3379,10 +3379,14 @@ class MainWindow:
             user32.SetFocus(self.thumbnail_grid.hwnd)
 
     def _fullscreen_select_relative(self, delta: int) -> None:
-        if self.thumbnail_grid.select_relative(delta):
-            return
-        if self._selected_image_file is not None and self.fullscreen_preview.visible:
-            self._start_fullscreen_worker(self._selected_image_file)
+        self._select_relative_image(delta)
+
+    def _select_relative_image(self, delta: int) -> bool:
+        if delta == 0 or not self.thumbnail_grid.items:
+            return False
+        if self.thumbnail_grid.selected_index is None or self._selected_image_file is None:
+            return False
+        return self.thumbnail_grid.select_relative(delta)
 
     def _handle_mouse_wheel(self, w_param: int) -> None:
         if _ctrl_pressed():

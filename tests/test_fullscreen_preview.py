@@ -231,6 +231,45 @@ class FullscreenPreviewTest(unittest.TestCase):
         self.assertEqual(window._selected_image_file, items[1])
         self.assertEqual(fullscreen_requests[-1], items[1])
 
+    def test_left_right_navigation_ignores_missing_selection(self) -> None:
+        window = main_window.MainWindow()
+        items = [_image_file(index) for index in range(3)]
+        preview_requests: list[ImageFile] = []
+        window.thumbnail_grid._client_width = lambda: 400  # type: ignore[method-assign]
+        window.thumbnail_grid._client_height = lambda: 430  # type: ignore[method-assign]
+        window.thumbnail_grid.set_items(items)
+        window.thumbnail_grid.on_selection_changed = window._select_image
+        window._start_preview_worker = lambda image_file, show_loading=True: preview_requests.append(image_file)  # type: ignore[method-assign]
+
+        self.assertFalse(window._select_relative_image(1))
+        self.assertIsNone(window.thumbnail_grid.selected_index)
+        self.assertIsNone(window._selected_image_file)
+        self.assertEqual(preview_requests, [])
+
+    def test_left_right_navigation_stops_safely_at_edges(self) -> None:
+        window = main_window.MainWindow()
+        items = [_image_file(index) for index in range(3)]
+        preview_requests: list[ImageFile] = []
+        window.thumbnail_grid._client_width = lambda: 400  # type: ignore[method-assign]
+        window.thumbnail_grid._client_height = lambda: 430  # type: ignore[method-assign]
+        window.thumbnail_grid.set_items(items)
+        window.thumbnail_grid.on_selection_changed = window._select_image
+        window._start_preview_worker = lambda image_file, show_loading=True: preview_requests.append(image_file)  # type: ignore[method-assign]
+
+        window.thumbnail_grid.select_index(0)
+        preview_requests.clear()
+        self.assertFalse(window._select_relative_image(-1))
+        self.assertEqual(window.thumbnail_grid.selected_index, 0)
+        self.assertEqual(window._selected_image_file, items[0])
+        self.assertEqual(preview_requests, [])
+
+        window.thumbnail_grid.select_index(2)
+        preview_requests.clear()
+        self.assertFalse(window._select_relative_image(1))
+        self.assertEqual(window.thumbnail_grid.selected_index, 2)
+        self.assertEqual(window._selected_image_file, items[2])
+        self.assertEqual(preview_requests, [])
+
     def test_space_navigation_uses_selection_flow(self) -> None:
         window = main_window.MainWindow()
         items = [_image_file(index) for index in range(3)]

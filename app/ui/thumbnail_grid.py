@@ -432,10 +432,10 @@ class ThumbnailGrid:
             if self._handle_copy_shortcut(int(w_param)):
                 return 0
             if int(w_param) == VK_LEFT:
-                self.select_relative(-1)
+                self._navigate_by_input(-1)
                 return 0
             if int(w_param) == VK_RIGHT:
-                self.select_relative(1)
+                self._navigate_by_input(1)
                 return 0
             if int(w_param) == VK_HOME:
                 self.select_first()
