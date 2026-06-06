@@ -419,6 +419,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\deploy_local_app.p
 
 `dist` は開発用の出力先です。実利用場所は `C:\Users\toru_\Apps\高速画像ビューア` に固定し、新しいexeを作った後は `tools\deploy_local_app.ps1` で反映します。更新後は Apps 側の `高速画像ビューア.exe` を起動し、`APPS_E2E_OK` 相当の確認ができることを見ます。デスクトップとスタートメニューのショートカットは Apps 側exeを参照します。
 
+## v1.0.0 運用確認メモ
+
+`v1.0.0` は正式公開済みです。GitHub Release は https://github.com/too555/fast-image-viewer-20260523/releases/tag/v1.0.0 です。
+
+普段使いの起動先は `C:\Users\toru_\Apps\高速画像ビューア\高速画像ビューア.exe` です。Apps側exeは実画像614件のフォルダで、サムネイル、プレビュー、フォルダツリー、戻る/進む/上の階層、設定画面の動作を確認済みです。
+
+PowerShell/Codexのコマンド実行が詰まる場合は、アプリ本体の不具合とは分けて扱います。まず高速画像ビューアの残存プロセス、PowerShell単体の応答、`.venv` のPython実行パス、`git status -sb` を確認してから修正作業へ進みます。
+
+次期改善候補は、起動直後の安全な初期状態、ドライブ直下の自動読み込み抑制、読み込み中表示の解除保証、未署名exe対策、インストーラー整備です。
+
 ## 古いショートカット確認
 
 手動起動で `Failed to start embedded python interpreter` や `Failed to import encodings module` が出る場合は、古いexeまたは古いショートカットを起動していないか確認します。
