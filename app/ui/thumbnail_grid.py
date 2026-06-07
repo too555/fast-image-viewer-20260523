@@ -256,6 +256,7 @@ class ThumbnailGrid:
         self.on_copy_folder_path = None
         self.on_previous = None
         self.on_next = None
+        self.on_space = None
         self.on_parent_folder = None
         self.on_previous_folder = None
         self.on_next_folder = None
@@ -453,6 +454,8 @@ class ThumbnailGrid:
                 self._activate_selected()
                 return 0
             if int(w_param) == VK_SPACE:
+                if self.on_space is not None and self.on_space():
+                    return 0
                 self._navigate_by_input(-1 if _shift_pressed() else 1)
                 return 0
         if message == WM_LBUTTONDOWN:

@@ -270,23 +270,42 @@ class FullscreenPreviewTest(unittest.TestCase):
         self.assertEqual(window._selected_image_file, items[2])
         self.assertEqual(preview_requests, [])
 
-    def test_space_navigation_uses_selection_flow(self) -> None:
+    def test_space_toggles_fullscreen_from_main_window(self) -> None:
         window = main_window.MainWindow()
         items = [_image_file(index) for index in range(3)]
-        preview_requests: list[ImageFile] = []
+        fullscreen_opened: list[bool] = []
         window.thumbnail_grid._client_width = lambda: 400  # type: ignore[method-assign]
         window.thumbnail_grid._client_height = lambda: 430  # type: ignore[method-assign]
         window.thumbnail_grid.set_items(items)
         window.thumbnail_grid.on_selection_changed = window._select_image
-        window._start_preview_worker = lambda image_file, show_loading=True: preview_requests.append(image_file)  # type: ignore[method-assign]
+        window._start_preview_worker = lambda _image_file, show_loading=True: None  # type: ignore[method-assign]
+        window._open_fullscreen = lambda *_args: fullscreen_opened.append(True)  # type: ignore[method-assign]
         window.thumbnail_grid.select_index(0)
-        preview_requests.clear()
 
         window.handle_message(0, main_window.WM_KEYDOWN, main_window.VK_SPACE, 0)
 
-        self.assertEqual(window.thumbnail_grid.selected_index, 1)
-        self.assertEqual(window._selected_image_file, items[1])
-        self.assertEqual(preview_requests, [items[1]])
+        self.assertEqual(window.thumbnail_grid.selected_index, 0)
+        self.assertEqual(window._selected_image_file, items[0])
+        self.assertEqual(fullscreen_opened, [True])
+
+    def test_space_without_selection_stops_safely(self) -> None:
+        window = main_window.MainWindow()
+        fullscreen_opened: list[bool] = []
+        window._open_fullscreen = lambda *_args: fullscreen_opened.append(True)  # type: ignore[method-assign]
+
+        self.assertFalse(window._toggle_fullscreen())
+        self.assertEqual(fullscreen_opened, [])
+
+    def test_space_closes_fullscreen(self) -> None:
+        window = main_window.MainWindow()
+        fake_fullscreen = FakeFullscreenPreview()
+        fake_fullscreen.visible = True
+        window.fullscreen_preview = fake_fullscreen  # type: ignore[assignment]
+
+        self.assertTrue(window._toggle_fullscreen())
+
+        self.assertFalse(fake_fullscreen.visible)
+        self.assertTrue(fake_fullscreen.hidden)
 
     def test_mouse_wheel_navigation_uses_selection_flow(self) -> None:
         window = main_window.MainWindow()

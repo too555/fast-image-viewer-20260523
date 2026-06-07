@@ -403,11 +403,8 @@ class FullscreenPreview:
                     self.on_next()
                 return 0
             if key == VK_SPACE:
-                if _shift_pressed():
-                    if self.on_previous is not None:
-                        self.on_previous()
-                elif self.on_next is not None:
-                    self.on_next()
+                if self.on_close is not None:
+                    self.on_close()
                 return 0
         if message == WM_MOUSEWHEEL:
             delta = _signed_hiword(int(w_param))

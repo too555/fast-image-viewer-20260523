@@ -850,7 +850,7 @@ class MainWindow:
                 self._open_fullscreen()
                 return 0
             if int(w_param) == VK_SPACE:
-                self.thumbnail_grid.select_relative(-1 if _shift_pressed() else 1)
+                self._toggle_fullscreen()
                 return 0
 
         if message == WM_COMMAND:
@@ -1202,6 +1202,7 @@ class MainWindow:
         self.thumbnail_grid.on_copy_folder_path = self._handle_copy_folder_path
         self.thumbnail_grid.on_previous = lambda: self._select_relative_image(-1)
         self.thumbnail_grid.on_next = lambda: self._select_relative_image(1)
+        self.thumbnail_grid.on_space = self._toggle_fullscreen
         self.thumbnail_grid.on_parent_folder = self._handle_open_parent_folder
         self.thumbnail_grid.on_previous_folder = self._handle_open_previous_folder
         self.thumbnail_grid.on_next_folder = self._handle_open_next_folder
@@ -1215,6 +1216,7 @@ class MainWindow:
         self.image_preview.on_copy_folder_path = self._handle_copy_folder_path
         self.image_preview.on_previous = lambda: self._select_relative_image(-1)
         self.image_preview.on_next = lambda: self._select_relative_image(1)
+        self.image_preview.on_space = self._toggle_fullscreen
         self.image_preview.on_parent_folder = self._handle_open_parent_folder
         self.image_preview.on_previous_folder = self._handle_open_previous_folder
         self.image_preview.on_next_folder = self._handle_open_next_folder
@@ -3377,6 +3379,15 @@ class MainWindow:
         self.fullscreen_preview.hide()
         if self.thumbnail_grid.hwnd:
             user32.SetFocus(self.thumbnail_grid.hwnd)
+
+    def _toggle_fullscreen(self) -> bool:
+        if self.fullscreen_preview.visible:
+            self._close_fullscreen()
+            return True
+        if self._selected_image_file is None:
+            return False
+        self._open_fullscreen()
+        return True
 
     def _fullscreen_select_relative(self, delta: int) -> None:
         self._select_relative_image(delta)
