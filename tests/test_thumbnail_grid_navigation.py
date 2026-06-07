@@ -191,6 +191,46 @@ class ThumbnailGridNavigationTest(unittest.TestCase):
 
         self.assertEqual(calls, ["image", "folder"])
 
+    def test_ctrl_mouse_wheel_changes_thumbnail_size_instead_of_image(self) -> None:
+        original_ctrl_pressed = thumbnail_grid._ctrl_pressed
+        grid = ThumbnailGrid()
+        calls: list[str] = []
+        moves: list[str] = []
+        grid.on_thumbnail_size_increase = lambda: calls.append("increase")
+        grid.on_thumbnail_size_decrease = lambda: calls.append("decrease")
+        grid.on_previous = lambda: moves.append("previous")
+        grid.on_next = lambda: moves.append("next")
+
+        try:
+            thumbnail_grid._ctrl_pressed = lambda: True  # type: ignore[assignment]
+            grid.handle_message(0, thumbnail_grid.WM_MOUSEWHEEL, 120 << 16, 0)
+            grid.handle_message(0, thumbnail_grid.WM_MOUSEWHEEL, (-120 & 0xFFFF) << 16, 0)
+        finally:
+            thumbnail_grid._ctrl_pressed = original_ctrl_pressed
+
+        self.assertEqual(calls, ["increase", "decrease"])
+        self.assertEqual(moves, [])
+
+    def test_mouse_wheel_without_ctrl_keeps_image_navigation(self) -> None:
+        original_ctrl_pressed = thumbnail_grid._ctrl_pressed
+        grid = ThumbnailGrid()
+        calls: list[str] = []
+        moves: list[str] = []
+        grid.on_thumbnail_size_increase = lambda: calls.append("increase")
+        grid.on_thumbnail_size_decrease = lambda: calls.append("decrease")
+        grid.on_previous = lambda: moves.append("previous")
+        grid.on_next = lambda: moves.append("next")
+
+        try:
+            thumbnail_grid._ctrl_pressed = lambda: False  # type: ignore[assignment]
+            grid.handle_message(0, thumbnail_grid.WM_MOUSEWHEEL, 120 << 16, 0)
+            grid.handle_message(0, thumbnail_grid.WM_MOUSEWHEEL, (-120 & 0xFFFF) << 16, 0)
+        finally:
+            thumbnail_grid._ctrl_pressed = original_ctrl_pressed
+
+        self.assertEqual(calls, [])
+        self.assertEqual(moves, ["previous", "next"])
+
     def test_rect_intersection_matches_paint_clip_expectations(self) -> None:
         self.assertTrue(_rects_intersect(RECT(0, 0, 10, 10), RECT(5, 5, 15, 15)))
         self.assertFalse(_rects_intersect(RECT(0, 0, 10, 10), RECT(10, 10, 20, 20)))

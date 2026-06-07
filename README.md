@@ -262,7 +262,8 @@ dist\高速画像ビューア.exe
 - Select and preview the dropped image file after opening its parent folder.
 - Keep the selected thumbnail highlighted after an image file drop.
 - Move to the next/previous image with the mouse wheel.
-- Move to the next image with Space and the previous image with Shift+Space.
+- Toggle fullscreen with Space.
+- Change thumbnail size with Ctrl + mouse wheel over the thumbnail list.
 - Switch preview zoom between 50%, 100%, 200%, and fit-to-height.
 - Change preview zoom with Ctrl + mouse wheel.
 - Apply the selected preview zoom to both normal preview and fullscreen preview.

@@ -39,6 +39,23 @@ class DisplayZoomTest(unittest.TestCase):
         window._zoom_out()
         self.assertEqual(window.display_mode, PREVIEW_MODE_SCALE_50)
 
+    def test_thumbnail_ctrl_wheel_steps_between_configured_sizes(self) -> None:
+        window = main_window.MainWindow()
+        requested_sizes: list[int] = []
+        window._change_thumbnail_size = lambda thumbnail_size: requested_sizes.append(thumbnail_size)  # type: ignore[method-assign]
+
+        window.thumbnail_size = 128
+        self.assertTrue(window._change_thumbnail_size_by_wheel(1))
+        window.thumbnail_size = 128
+        self.assertTrue(window._change_thumbnail_size_by_wheel(-1))
+
+        window.thumbnail_size = 256
+        self.assertFalse(window._change_thumbnail_size_by_wheel(1))
+        window.thumbnail_size = 64
+        self.assertFalse(window._change_thumbnail_size_by_wheel(-1))
+
+        self.assertEqual(requested_sizes, [160, 96])
+
     def test_pan_is_enabled_for_fixed_ratios_only(self) -> None:
         self.assertTrue(main_window._pan_enabled_for_display_mode(PREVIEW_MODE_SCALE_50))
         self.assertTrue(main_window._pan_enabled_for_display_mode(PREVIEW_MODE_ORIGINAL))

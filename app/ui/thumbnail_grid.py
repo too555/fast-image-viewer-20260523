@@ -257,6 +257,8 @@ class ThumbnailGrid:
         self.on_previous = None
         self.on_next = None
         self.on_space = None
+        self.on_thumbnail_size_increase = None
+        self.on_thumbnail_size_decrease = None
         self.on_parent_folder = None
         self.on_previous_folder = None
         self.on_next_folder = None
@@ -472,6 +474,12 @@ class ThumbnailGrid:
             return 0
         if message == WM_MOUSEWHEEL:
             delta = _signed_hiword(int(w_param))
+            if _ctrl_pressed():
+                if delta > 0 and self.on_thumbnail_size_increase is not None:
+                    self.on_thumbnail_size_increase()
+                elif delta < 0 and self.on_thumbnail_size_decrease is not None:
+                    self.on_thumbnail_size_decrease()
+                return 0
             if delta > 0:
                 self._navigate_by_input(-1)
             elif delta < 0:

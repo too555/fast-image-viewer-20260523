@@ -1203,6 +1203,8 @@ class MainWindow:
         self.thumbnail_grid.on_previous = lambda: self._select_relative_image(-1)
         self.thumbnail_grid.on_next = lambda: self._select_relative_image(1)
         self.thumbnail_grid.on_space = self._toggle_fullscreen
+        self.thumbnail_grid.on_thumbnail_size_increase = lambda: self._change_thumbnail_size_by_wheel(1)
+        self.thumbnail_grid.on_thumbnail_size_decrease = lambda: self._change_thumbnail_size_by_wheel(-1)
         self.thumbnail_grid.on_parent_folder = self._handle_open_parent_folder
         self.thumbnail_grid.on_previous_folder = self._handle_open_previous_folder
         self.thumbnail_grid.on_next_folder = self._handle_open_next_folder
@@ -2866,6 +2868,22 @@ class MainWindow:
         slider_index = int(user32.SendMessageW(self.thumbnail_size_slider, TBM_GETPOS, 0, 0))
         slider_index = max(0, min(len(THUMBNAIL_SIZE_VALUES) - 1, slider_index))
         self._change_thumbnail_size(THUMBNAIL_SIZE_VALUES[slider_index])
+
+    def _change_thumbnail_size_by_wheel(self, direction: int) -> bool:
+        if direction == 0:
+            return False
+        try:
+            current_index = THUMBNAIL_SIZE_VALUES.index(self.thumbnail_size)
+        except ValueError:
+            current_index = min(
+                range(len(THUMBNAIL_SIZE_VALUES)),
+                key=lambda index: abs(THUMBNAIL_SIZE_VALUES[index] - self.thumbnail_size),
+            )
+        next_index = max(0, min(len(THUMBNAIL_SIZE_VALUES) - 1, current_index + (1 if direction > 0 else -1)))
+        if next_index == current_index:
+            return False
+        self._change_thumbnail_size(THUMBNAIL_SIZE_VALUES[next_index])
+        return True
 
     def _check_thumbnail_size_button(self, thumbnail_size: int) -> None:
         if not self.hwnd:
