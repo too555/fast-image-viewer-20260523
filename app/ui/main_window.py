@@ -1267,12 +1267,6 @@ class MainWindow:
             WS_CHILD | WS_VISIBLE,
             REVEAL_SELECTED_IMAGE_ID,
         )
-        self.open_resize_output_folder_button = self._create_child(
-            "BUTTON",
-            "\u4fdd\u5b58\u5148",
-            WS_CHILD | WS_VISIBLE,
-            OPEN_RESIZE_OUTPUT_FOLDER_ID,
-        )
         self._create_navigation_tooltips()
 
     def _create_navigation_tooltips(self) -> None:
@@ -2340,7 +2334,6 @@ class MainWindow:
             self.copy_image_path_button,
             self.open_selected_folder_button,
             self.reveal_selected_image_button,
-            self.open_resize_output_folder_button,
         ]):
             return
 
@@ -2770,13 +2763,11 @@ class MainWindow:
             self.copy_image_path_button,
             self.open_selected_folder_button,
             self.reveal_selected_image_button,
-            self.open_resize_output_folder_button,
         ):
             user32.ShowWindow(child, SW_SHOW if show_status_area else SW_HIDE)
         if not show_status_area:
             return
-        open_save_x = width - margin - open_save_button_width
-        reveal_image_x = open_save_x - size_button_gap - reveal_image_button_width
+        reveal_image_x = width - margin - reveal_image_button_width
         open_folder_x = reveal_image_x - size_button_gap - open_folder_button_width
         copy_image_x = open_folder_x - size_button_gap - copy_image_button_width
         copy_folder_x = copy_image_x - size_button_gap - copy_folder_button_width
@@ -2818,14 +2809,6 @@ class MainWindow:
             reveal_image_x,
             status_message_y,
             reveal_image_button_width,
-            22,
-            True,
-        )
-        user32.MoveWindow(
-            self.open_resize_output_folder_button,
-            open_save_x,
-            status_message_y,
-            open_save_button_width,
             22,
             True,
         )

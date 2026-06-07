@@ -211,9 +211,12 @@ class ThumbnailGridNavigationTest(unittest.TestCase):
         self.assertEqual(calls, ["increase", "decrease"])
         self.assertEqual(moves, [])
 
-    def test_mouse_wheel_without_ctrl_keeps_image_navigation(self) -> None:
+    def test_mouse_wheel_without_ctrl_scrolls_thumbnail_list(self) -> None:
         original_ctrl_pressed = thumbnail_grid._ctrl_pressed
         grid = ThumbnailGrid()
+        grid._client_width = lambda: 400  # type: ignore[method-assign]
+        grid._client_height = lambda: 430  # type: ignore[method-assign]
+        grid.set_items(_items(100))
         calls: list[str] = []
         moves: list[str] = []
         grid.on_thumbnail_size_increase = lambda: calls.append("increase")
@@ -223,13 +226,16 @@ class ThumbnailGridNavigationTest(unittest.TestCase):
 
         try:
             thumbnail_grid._ctrl_pressed = lambda: False  # type: ignore[assignment]
+            grid.scroll_y = grid._cell_height()
             grid.handle_message(0, thumbnail_grid.WM_MOUSEWHEEL, 120 << 16, 0)
+            self.assertEqual(grid.scroll_y, 0)
             grid.handle_message(0, thumbnail_grid.WM_MOUSEWHEEL, (-120 & 0xFFFF) << 16, 0)
+            self.assertEqual(grid.scroll_y, grid._cell_height())
         finally:
             thumbnail_grid._ctrl_pressed = original_ctrl_pressed
 
         self.assertEqual(calls, [])
-        self.assertEqual(moves, ["previous", "next"])
+        self.assertEqual(moves, [])
 
     def test_rect_intersection_matches_paint_clip_expectations(self) -> None:
         self.assertTrue(_rects_intersect(RECT(0, 0, 10, 10), RECT(5, 5, 15, 15)))

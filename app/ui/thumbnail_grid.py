@@ -115,6 +115,7 @@ WM_LBUTTONDBLCLK = 0x0203
 WM_RBUTTONUP = 0x0205
 WM_MOUSEWHEEL = 0x020A
 WM_DROPFILES = 0x0233
+WHEEL_DELTA = 120
 
 WS_CHILD = 0x40000000
 WS_VISIBLE = 0x10000000
@@ -480,10 +481,7 @@ class ThumbnailGrid:
                 elif delta < 0 and self.on_thumbnail_size_decrease is not None:
                     self.on_thumbnail_size_decrease()
                 return 0
-            if delta > 0:
-                self._navigate_by_input(-1)
-            elif delta < 0:
-                self._navigate_by_input(1)
+            self._scroll_by_wheel(delta)
             return 0
         if message == WM_DROPFILES:
             if self.on_files_dropped is not None:
@@ -715,6 +713,13 @@ class ThumbnailGrid:
             self._set_scroll(0)
         elif request == SB_BOTTOM:
             self._set_scroll(self._max_scroll())
+
+    def _scroll_by_wheel(self, delta: int) -> None:
+        if delta == 0:
+            return
+        wheel_steps = max(1, abs(delta) // WHEEL_DELTA)
+        direction = -1 if delta > 0 else 1
+        self._set_scroll(self.scroll_y + direction * wheel_steps * self._cell_height())
 
     def _handle_click(self, x: int, y: int) -> None:
         index = self._index_at_point(x, y)
